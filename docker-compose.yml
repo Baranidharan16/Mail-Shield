@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forensics}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forensics_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-email_forensics}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forensics}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-forensics}:${POSTGRES_PASSWORD:-forensics_dev_password}@postgres:5432/${POSTGRES_DB:-email_forensics}
+      CORS_ORIGINS: '["http://localhost:5173","http://localhost:80","http://localhost"]'
+      UPLOAD_STORAGE_DIR: /app/storage/evidence
+      MAX_UPLOAD_SIZE_BYTES: "10485760"
+      RATE_LIMIT_PER_MINUTE: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - evidence_storage:/app/storage/evidence
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data:
+  evidence_storage:

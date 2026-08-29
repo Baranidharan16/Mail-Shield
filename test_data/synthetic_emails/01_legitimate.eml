@@ -1,0 +1,35 @@
+Delivered-To: alice@acmecorp.example
+Received: by 2002:a05:6000:abc:0:0:0:0 with SMTP id x1csp1; Mon, 12 Aug 2024 09:15:22 -0700 (PDT)
+Received: from mail.acmecorp.example (mail.acmecorp.example. [203.0.113.10])
+        by mx.google.com with ESMTPS id y2 for <alice@acmecorp.example>;
+        Mon, 12 Aug 2024 09:15:21 -0700 (PDT)
+Received: from smtp-relay.acmecorp.example (smtp-relay.acmecorp.example [203.0.113.55])
+        by mail.acmecorp.example with ESMTP id z9;
+        Mon, 12 Aug 2024 16:15:19 +0000
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@acmecorp.example header.s=selector1 header.d=acmecorp.example;
+       spf=pass (google.com: domain of bob@acmecorp.example designates 203.0.113.55 as permitted sender) smtp.mailfrom=bob@acmecorp.example;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=acmecorp.example
+DKIM-Signature: v=1; a=rsa-sha256; d=acmecorp.example; s=selector1; c=relaxed/relaxed;
+    h=from:to:subject:date:message-id; bh=abc123=; b=xyz789signature==
+From: Bob Smith <bob@acmecorp.example>
+To: Alice Johnson <alice@acmecorp.example>
+Reply-To: Bob Smith <bob@acmecorp.example>
+Return-Path: <bob@acmecorp.example>
+Subject: Q3 project timeline review
+Date: Mon, 12 Aug 2024 16:15:00 +0000
+Message-ID: <8f2c1a90-1234-4a11-9c2e-abcdef012345@acmecorp.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+X-Mailer: Microsoft Outlook 16.0
+
+SYNTHETIC TEST DATA - LEGITIMATE EMAIL EXAMPLE
+
+Hi Alice,
+
+Attaching the updated Q3 project timeline for your review ahead of
+tomorrow's planning meeting. Let me know if you'd like to walk through
+any of the milestones beforehand.
+
+Thanks,
+Bob

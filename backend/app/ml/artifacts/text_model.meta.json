@@ -1,0 +1,18 @@
+{
+  "model_name": "text_tfidf_logreg",
+  "model_version": "1.0.0",
+  "training_dataset_version": "synthetic-v1.0.0",
+  "feature_version": "1.0.0",
+  "trained_at": "2026-08-26T03:41:04.592062+00:00",
+  "algorithm": "TfidfVectorizer(max_features=500, ngram_range=(1,2)) + LogisticRegression",
+  "classes": [
+    "BUSINESS_EMAIL_COMPROMISE",
+    "CREDENTIAL_HARVESTING",
+    "FRAUD",
+    "IMPERSONATION",
+    "LEGITIMATE",
+    "MALWARE_SUSPECTED",
+    "PHISHING",
+    "SUSPICIOUS"
+  ]
+}

@@ -1,0 +1,26 @@
+Received: from mail.acmecorp-security.com ([203.0.113.99])
+        by mx.acmecorp.example with SMTP id d5;
+        Sat, 17 Aug 2024 10:00:00 +0000
+Authentication-Results: mx.acmecorp.example;
+       spf=pass smtp.mailfrom=noreply@acmecorp-security.com;
+       dkim=pass header.d=acmecorp-security.com;
+       dmarc=none
+From: "Acme Corp Security Team" <noreply@acmecorp-security.com>
+To: employee@acmecorp.example
+Reply-To: noreply@acmecorp-security.com
+Return-Path: <noreply@acmecorp-security.com>
+Subject: Mandatory security policy acknowledgement required
+Date: Sat, 17 Aug 2024 10:00:00 +0000
+Message-ID: <lookalike-004@acmecorp-security.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+SYNTHETIC TEST DATA - LOOKALIKE / TYPOSQUAT DOMAIN EXAMPLE
+
+Dear Employee,
+
+Please acknowledge the updated security policy by confirming your
+account details at your earliest convenience. Failure to comply may
+result in restricted account access.
+
+Acme Corp Security Team

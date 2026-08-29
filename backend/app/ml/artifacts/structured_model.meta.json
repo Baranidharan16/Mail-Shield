@@ -1,0 +1,18 @@
+{
+  "model_name": "structured_random_forest",
+  "model_version": "1.0.0",
+  "training_dataset_version": "synthetic-v1.0.0",
+  "feature_version": "1.0.0",
+  "trained_at": "2026-08-26T03:41:04.566781+00:00",
+  "algorithm": "RandomForestClassifier(n_estimators=200, max_depth=8)",
+  "classes": [
+    "BUSINESS_EMAIL_COMPROMISE",
+    "CREDENTIAL_HARVESTING",
+    "FRAUD",
+    "IMPERSONATION",
+    "LEGITIMATE",
+    "MALWARE_SUSPECTED",
+    "PHISHING",
+    "SUSPICIOUS"
+  ]
+}

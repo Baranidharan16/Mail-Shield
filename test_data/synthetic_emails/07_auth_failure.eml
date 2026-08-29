@@ -1,0 +1,26 @@
+Received: from mail.partner-org.example ([192.0.2.15])
+        by mx.acmecorp.example with SMTP id e2;
+        Sun, 18 Aug 2024 07:30:00 +0000
+Authentication-Results: mx.acmecorp.example;
+       spf=fail smtp.mailfrom=newsletter@partner-org.example;
+       dkim=fail header.d=partner-org.example;
+       dmarc=fail (p=REJECT) header.from=partner-org.example
+From: Partner Org Newsletter <newsletter@partner-org.example>
+To: subscriber@acmecorp.example
+Reply-To: newsletter@partner-org.example
+Return-Path: <bounce@partner-org.example>
+Subject: This week's newsletter
+Date: Sun, 18 Aug 2024 07:29:55 +0000
+Message-ID: <newsletter-005@partner-org.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+SYNTHETIC TEST DATA - AUTHENTICATION FAILURE EXAMPLE
+
+Hello,
+
+Here's a roundup of this week's updates from Partner Org. Note this
+message intentionally fails SPF/DKIM/DMARC for testing the platform's
+authentication analysis module.
+
+Thanks for reading.

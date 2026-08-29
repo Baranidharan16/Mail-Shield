@@ -1,0 +1,9 @@
+{
+  "_comment": "Deterministic forensic threat scoring configuration bands (SIH 2026)",
+  "classification_bands": {
+    "LOW": [0, 24],
+    "MEDIUM": [25, 49],
+    "HIGH": [50, 74],
+    "CRITICAL": [75, 100]
+  }
+}

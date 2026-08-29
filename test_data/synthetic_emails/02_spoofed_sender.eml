@@ -1,0 +1,26 @@
+Received: from unknown (unknown [198.51.100.77])
+        by relay.example-mailhost.test with SMTP id q1;
+        Tue, 13 Aug 2024 03:22:10 +0000
+Authentication-Results: mx.acmecorp.example;
+       spf=fail (mx.acmecorp.example: domain of ceo@acmecorp.example does not designate 198.51.100.77 as permitted sender) smtp.mailfrom=ceo@acmecorp.example;
+       dkim=none (message not signed);
+       dmarc=fail (p=REJECT) header.from=acmecorp.example
+From: "Michael Reyes - CEO acmecorp.example" <m.reyes77@gmail.com>
+To: finance@acmecorp.example
+Reply-To: m.reyes.ceo@protonmail.com
+Return-Path: <bounce@mailer-svc-77.example>
+Subject: Quick request - are you at your desk?
+Date: Tue, 13 Aug 2024 03:22:00 +0000
+Message-ID: <99991111-aaaa-bbbb-cccc-dddddddddddd@mailer-svc-77.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+SYNTHETIC TEST DATA - SPOOFED SENDER / DISPLAY-NAME IMPERSONATION EXAMPLE
+
+Hi,
+
+Are you available? I need you to handle something for me urgently but
+I'm currently in a meeting and can't talk. Keep this between us for now,
+I'll explain later.
+
+Michael

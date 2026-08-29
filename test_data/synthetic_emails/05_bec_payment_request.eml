@@ -1,0 +1,30 @@
+Received: from mail.vendor-billing-svc.info ([198.51.100.220])
+        by mx.buyercorp.example with SMTP id b7;
+        Fri, 16 Aug 2024 14:12:00 +0000
+Authentication-Results: mx.buyercorp.example;
+       spf=neutral smtp.mailfrom=accounts@vendor-billing-svc.info;
+       dkim=none;
+       dmarc=none
+From: "Accounts Payable - TrustedVendor Inc" <accounts@vendor-billing-svc.info>
+To: ap@buyercorp.example
+Reply-To: accounts.payable.updates@vendor-billing-svc.info
+Return-Path: <bounce@vendor-billing-svc.info>
+Subject: Updated banking details for upcoming invoice payment
+Date: Fri, 16 Aug 2024 14:11:55 +0000
+Message-ID: <bec-003@vendor-billing-svc.info>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+SYNTHETIC TEST DATA - BEC / PAYMENT DIVERSION EXAMPLE
+
+Hello,
+
+Please note we have changed our payment details. For the invoice
+attached, kindly process the payment via wire transfer to our new bank
+account listed below instead of the previous account. This is time
+sensitive as the remittance is due this week.
+
+Please confirm once the wire transfer has been completed.
+
+Regards,
+Accounts Payable Team
