@@ -1,13 +1,25 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getDashboardStats, getRecentAlerts } from "../api/client";
-import type { DashboardStats, AlertOut } from "../types/investigation";
+import {
+  getDashboardStats,
+  getRecentAlerts,
+  getGmailStatus,
+  getGmailAuthUrl,
+  getGmailMessages,
+  analyzeGmailMessage,
+  disconnectGmail,
+  type GmailMessageItem,
+  type GmailStatusResponse,
+} from "../api/client";
+import type { DashboardStats, AlertOut, MailShieldAnalysisResponse } from "../types/investigation";
 import { ClassificationBadge, SeverityBadge } from "../components/Badges";
 import LiveThreatFeed from "../components/LiveThreatFeed";
+import MailShieldLiveAnalysis from "../components/MailShieldLiveAnalysis";
 import {
   ShieldAlert, ShieldCheck, Activity, Database, AlertTriangle,
   Cpu, RefreshCw, UploadCloud, Link2, ArrowUpRight, Shield,
-  TrendingUp, Archive,
+  TrendingUp, Archive, Mail, ChevronDown, ChevronUp,
+  Search, Zap, LogOut,
 } from "lucide-react";
 
 function formatTs(iso: string) {
@@ -67,6 +79,34 @@ export default function DashboardPage() {
   const [recentAlerts, setRecentAlerts] = useState<AlertOut[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Gmail OAuth Integration State
+  const [gmailStatus, setGmailStatus] = useState<GmailStatusResponse | null>(null);
+  const [gmailMessages, setGmailMessages] = useState<GmailMessageItem[]>([]);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [showGmailDrawer, setShowGmailDrawer] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [analyzingMessageId, setAnalyzingMessageId] = useState<string | null>(null);
+  const [gmailAnalysis, setGmailAnalysis] = useState<MailShieldAnalysisResponse | null>(null);
+  const [gmailInvestigationId, setGmailInvestigationId] = useState<string | null>(null);
+  const [gmailError, setGmailError] = useState<string | null>(null);
+
+  async function loadGmail() {
+    setGmailLoading(true);
+    setGmailError(null);
+    try {
+      const st = await getGmailStatus();
+      setGmailStatus(st);
+      if (st.connected) {
+        const msgs = await getGmailMessages();
+        setGmailMessages(msgs);
+      }
+    } catch {
+      setGmailStatus(null);
+    } finally {
+      setGmailLoading(false);
+    }
+  }
+
   async function load() {
     setLoading(true);
     try {
@@ -75,11 +115,85 @@ export default function DashboardPage() {
     } catch {
       setStats({ total_investigations: 0, critical: 0, high: 0, medium: 0, low: 0, processing: 0, completed: 0, failed: 0, campaigns: 0, active_alerts: 0 });
     } finally { setLoading(false); }
+    loadGmail();
   }
 
   useEffect(() => { load(); }, []);
+
+  const handleConnectGmail = async () => {
+    setGmailLoading(true);
+    setGmailError(null);
+    try {
+      const { authorization_url } = await getGmailAuthUrl();
+      if (authorization_url) {
+        window.location.href = authorization_url;
+      }
+    } catch (err: any) {
+      setGmailError(err?.response?.data?.detail || "Failed to initiate Google OAuth.");
+      setGmailLoading(false);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    setGmailLoading(true);
+    try {
+      await disconnectGmail();
+      setGmailStatus({ connected: false, email: "", messages_total: 0, quarantined_count: 0 });
+      setGmailMessages([]);
+      setShowGmailDrawer(false);
+    } catch (err: any) {
+      setGmailError("Failed to disconnect Gmail.");
+    } finally {
+      setGmailLoading(false);
+    }
+  };
+
+  const handleSearchGmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGmailLoading(true);
+    try {
+      const msgs = await getGmailMessages(searchQuery);
+      setGmailMessages(msgs);
+    } catch (err: any) {
+      setGmailError("Failed to search Gmail messages.");
+    } finally {
+      setGmailLoading(false);
+    }
+  };
+
+  const handleAnalyzeEmail = async (msg: GmailMessageItem) => {
+    setAnalyzingMessageId(msg.id);
+    setGmailError(null);
+    try {
+      const res = await analyzeGmailMessage(msg.id);
+      setGmailAnalysis(res.analysis);
+      setGmailInvestigationId(res.investigation_id);
+      load(); // refresh dashboard stats
+    } catch (err: any) {
+      setGmailError(err?.response?.data?.detail || "Failed to analyze raw email from Gmail.");
+    } finally {
+      setAnalyzingMessageId(null);
+    }
+  };
+
   const totalThreats = (stats?.critical ?? 0) + (stats?.high ?? 0) + (stats?.medium ?? 0) + (stats?.low ?? 0);
   const detectionRate = stats?.total_investigations ? ((totalThreats / stats.total_investigations) * 100).toFixed(0) : "—";
+
+  // If viewing an analysis result from Gmail
+  if (gmailAnalysis) {
+    return (
+      <div className="p-6 md:p-8 max-w-4xl mx-auto">
+        <MailShieldLiveAnalysis
+          data={gmailAnalysis}
+          onReset={() => {
+            setGmailAnalysis(null);
+            setGmailInvestigationId(null);
+          }}
+          onViewDetails={gmailInvestigationId ? () => navigate(`/investigations/${gmailInvestigationId}`) : undefined}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 md:p-8 max-w-7xl space-y-6 animate-fade-in">
@@ -97,7 +211,7 @@ export default function DashboardPage() {
           <p className="text-sm text-lab-400">Real-time email threat monitoring and forensic intelligence</p>
         </div>
         <div className="flex items-center gap-2.5 flex-shrink-0">
-          {loading && <RefreshCw className="h-4 w-4 text-phosphor-400 animate-spin" />}
+          {(loading || gmailLoading) && <RefreshCw className="h-4 w-4 text-phosphor-400 animate-spin" />}
           <button onClick={load} className="btn-glass-secondary text-sm px-3 py-2 gap-1.5 cursor-pointer">
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </button>
@@ -105,6 +219,177 @@ export default function DashboardPage() {
             <UploadCloud className="h-4 w-4" strokeWidth={2.2} /> Analyze Email
           </button>
         </div>
+      </div>
+
+      {/* ── GMAIL INTEGRATION SECTION ────────────────────────────────────────── */}
+      <div className="glass-section rounded-2xl p-5 border-white/10 space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
+              gmailStatus?.connected
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                : "bg-red-500/10 border-red-500/30 text-red-400"
+            }`}>
+              <Mail className="h-5 w-5" strokeWidth={1.75} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">
+                  {gmailStatus?.connected ? "GMAIL CONNECTED ✓" : "CONNECT GMAIL"}
+                </span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                  gmailStatus?.connected
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                    : "bg-white/5 text-lab-400 border-white/10"
+                }`}>
+                  {gmailStatus?.connected ? "OAUTH ACTIVE" : "DISCONNECTED"}
+                </span>
+              </div>
+              <div className="text-xs text-lab-400 mt-0.5">
+                {gmailStatus?.connected ? (
+                  <span>Google account: <strong className="text-white font-mono">{gmailStatus.email}</strong></span>
+                ) : (
+                  "Connect your Gmail mailbox to acquire raw RFC822 messages and run forensic threat analysis."
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 self-end sm:self-auto">
+            {gmailStatus?.connected ? (
+              <>
+                <button
+                  onClick={() => setShowGmailDrawer(!showGmailDrawer)}
+                  className="btn-glass-primary text-xs px-3.5 py-2 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  VIEW EMAILS
+                  {showGmailDrawer ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                </button>
+                <button
+                  onClick={handleDisconnectGmail}
+                  disabled={gmailLoading}
+                  className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs flex items-center gap-1.5 border border-red-500/20 transition-all cursor-pointer"
+                  title="Disconnect Gmail"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleConnectGmail}
+                disabled={gmailLoading}
+                className="btn-glass-primary text-xs px-4 py-2.5 flex items-center gap-2 cursor-pointer"
+              >
+                <Mail className="h-4 w-4" />
+                CONNECT GMAIL
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Gmail Error Notice */}
+        {gmailError && (
+          <div className="text-xs font-mono text-crimson-glow bg-crimson-signal/10 border border-crimson-signal/25 rounded-xl p-3">
+            {gmailError}
+          </div>
+        )}
+
+        {/* Recent Emails Drawer */}
+        {gmailStatus?.connected && showGmailDrawer && (
+          <div className="border-t border-white/10 pt-4 space-y-3 animate-fade-in">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+              <div className="text-xs font-semibold text-lab-200">
+                Recent Emails ({gmailMessages.length})
+              </div>
+              <form onSubmit={handleSearchGmail} className="flex gap-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="Search recent emails..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-black/30 border border-white/10 text-white text-xs font-mono focus:outline-none focus:border-phosphor-500/50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={gmailLoading}
+                  className="btn-glass-secondary text-xs px-3 py-1.5 flex items-center gap-1"
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  onClick={loadGmail}
+                  disabled={gmailLoading}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs"
+                  title="Refresh Gmail"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${gmailLoading ? "animate-spin" : ""}`} />
+                </button>
+              </form>
+            </div>
+
+            {/* Email List Table */}
+            <div className="overflow-x-auto rounded-xl border border-white/5 bg-black/20">
+              {gmailMessages.length === 0 ? (
+                <div className="p-6 text-center text-xs text-lab-400">
+                  {gmailLoading ? "Loading Gmail messages..." : "No recent emails found."}
+                </div>
+              ) : (
+                <table className="glass-table w-full text-left text-xs">
+                  <thead>
+                    <tr>
+                      <th className="py-2.5 px-3">SENDER</th>
+                      <th className="py-2.5 px-3">SUBJECT</th>
+                      <th className="py-2.5 px-3">DATE</th>
+                      <th className="py-2.5 px-3">MESSAGE ID</th>
+                      <th className="py-2.5 px-3 text-right">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {gmailMessages.map((m) => {
+                      const isAnalyzing = analyzingMessageId === m.id;
+                      return (
+                        <tr key={m.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-2.5 px-3 max-w-[180px] truncate text-white font-medium">
+                            {m.sender}
+                          </td>
+                          <td className="py-2.5 px-3 max-w-[240px] truncate text-slate-300" title={m.subject}>
+                            {m.subject || "(No Subject)"}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-lab-500 font-mono text-[11px]">
+                            {m.date}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[10px] text-lab-500 truncate max-w-[120px]" title={m.id}>
+                            {m.id}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              onClick={() => handleAnalyzeEmail(m)}
+                              disabled={isAnalyzing}
+                              className="btn-glass-primary py-1 px-2.5 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              {isAnalyzing ? (
+                                <RefreshCw className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Zap className="h-3 w-3 text-phosphor-400" />
+                              )}
+                              {isAnalyzing ? "Analyzing..." : "ANALYZE"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stat Grid */}

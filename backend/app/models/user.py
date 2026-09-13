@@ -38,7 +38,6 @@ class User(Base):
         "Investigation",
         back_populates="user",
         cascade="all, delete-orphan",
-        order_by="desc(Investigation.created_at)",
     )
 
     # 1-to-1 relationship with linked Gmail account (per-user OAuth isolation)

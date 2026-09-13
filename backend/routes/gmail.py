@@ -68,6 +68,8 @@ def _require_gmail_session(current_user: User, db: Session):
 @router.get("/auth/google")
 @router.get("/api/v1/auth/google")
 async def google_auth_login(
+    redirect: Optional[bool] = Query(False, description="Redirect directly to Google in browser if true"),
+    origin: Optional[str] = Query(None, description="Originating frontend URL to redirect back to"),
     current_user: User = Depends(get_required_current_user),
 ):
     """
@@ -76,18 +78,28 @@ async def google_auth_login(
     the callback with the correct MailShield account.
     REQUIRES: valid JWT session (user must be logged into MailShield first).
     """
-    secret = os.getenv("JWT_SECRET_KEY", "mailshield-insecure-dev-secret-key-change-in-production-2026")
-    # Encode user_id in state so we can retrieve it on callback (signed JWT)
-    state_payload = {"user_id": current_user.id, "sub": current_user.email}
+    secret = os.getenv("JWT_SECRET_KEY", "mailshield_jwt_secure_key_sih2026_dev_env")
+    # Encode user_id and originating dashboard url in state
+    state_payload = {
+        "user_id": current_user.id,
+        "sub": current_user.email,
+        "origin": origin or "/dashboard",
+    }
     state_token = _jwt.encode(state_payload, secret, algorithm="HS256")
 
     try:
         auth_url = build_authorization_url(state=state_token)
     except ValueError as e:
+        logger.error("Failed to build Google authorization URL: %s", e)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(e),
         )
+
+    # If requested by browser directly or query param redirect=true, return 302 redirect
+    if redirect:
+        return RedirectResponse(url=auth_url)
+
     return {"authorization_url": auth_url}
 
 
@@ -104,40 +116,65 @@ async def google_auth_callback(
     Decodes the 'state' JWT to retrieve the MailShield user_id,
     then saves the encrypted tokens to that user's gmail_accounts row.
     """
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+    client_id_loaded = bool(os.getenv("GOOGLE_CLIENT_ID"))
+    client_secret_loaded = bool(os.getenv("GOOGLE_CLIENT_SECRET"))
+
+    # Log safe diagnostic info without exposing secret values
+    logger.info("=== GOOGLE OAUTH DIAGNOSTICS ===")
+    logger.info("OAuth provider: Google")
+    logger.info("Redirect URI: %s", redirect_uri)
+    logger.info("Backend: http://localhost:8000")
+    logger.info("Callback route: /auth/google/callback")
+    logger.info("Environment loaded: YES")
+    logger.info("Client ID loaded: %s", "YES" if client_id_loaded else "NO")
+    logger.info("Client secret loaded: %s", "YES" if client_secret_loaded else "NO")
+    logger.info("Code present: %s | State present: %s | Error: %s", bool(code), bool(state), error or "None")
+
+    fallback_url = "/dashboard"
+
     if error:
-        logger.error("Google OAuth error: %s", error)
-        return RedirectResponse(url="/upload?oauth_error=" + error)
+        logger.error("Google OAuth returned error from Google consent: %s", error)
+        return RedirectResponse(url=f"{fallback_url}?oauth_error={error}")
 
     if not code:
-        return RedirectResponse(url="/upload?oauth_error=no_code")
+        logger.error("OAuth callback missing code parameter")
+        return RedirectResponse(url=f"{fallback_url}?oauth_error=no_code")
 
     if not state:
         logger.warning("OAuth callback received without state — cannot associate tokens with user")
-        return RedirectResponse(url="/upload?oauth_error=missing_state")
+        return RedirectResponse(url=f"{fallback_url}?oauth_error=missing_state")
 
-    # Decode state to get user_id
-    secret = os.getenv("JWT_SECRET_KEY", "mailshield-insecure-dev-secret-key-change-in-production-2026")
+    # Decode state to get user_id and originating url
+    secret = os.getenv("JWT_SECRET_KEY", "mailshield_jwt_secure_key_sih2026_dev_env")
+    return_url = fallback_url
     try:
         payload = _jwt.decode(state, secret, algorithms=["HS256"])
         user_id = payload.get("user_id")
+        return_url = payload.get("origin") or fallback_url
         if not user_id:
             raise ValueError("Missing user_id in state token")
     except Exception as e:
         logger.error("OAuth state token invalid: %s", e)
-        return RedirectResponse(url="/upload?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{fallback_url}?oauth_error=invalid_state")
 
     # Exchange authorization code for tokens
     try:
         tokens = await exchange_code_for_tokens(code)
-    except ValueError as e:
-        logger.error("Token exchange failed: %s", e)
-        return RedirectResponse(url="/upload?oauth_error=token_exchange_failed")
+    except Exception as e:
+        logger.error("Token exchange failed with error category: %s", type(e).__name__)
+        return RedirectResponse(url=f"{return_url}?oauth_error=token_exchange_failed")
 
     # Persist encrypted tokens for this user
-    await save_user_gmail_tokens(user_id=user_id, tokens=tokens, db=db)
-    logger.info("Gmail OAuth tokens saved for user_id=%s", user_id)
+    try:
+        await save_user_gmail_tokens(user_id=user_id, tokens=tokens, db=db)
+        logger.info("Gmail OAuth tokens securely stored for user_id=%s", user_id)
+    except Exception as e:
+        logger.error("Failed to store Gmail tokens: %s", e)
+        return RedirectResponse(url=f"{return_url}?oauth_error=storage_failed")
 
-    return RedirectResponse(url="/upload?gmail_connected=true")
+    sep = "&" if "?" in return_url else "?"
+    return RedirectResponse(url=f"{return_url}{sep}gmail_connected=true")
 
 
 # ── Authenticated Gmail Endpoints ─────────────────────────────────────────────

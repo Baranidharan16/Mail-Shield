@@ -35,12 +35,16 @@ async def get_optional_current_user(
     if credentials and credentials.credentials:
         token = credentials.credentials
     else:
-        # Fallback check for header "authorization" or "x-access-token"
+        # Fallback check for header "authorization" or "x-access-token" or query param "token"
         auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ", 1)[1].strip()
         elif request.headers.get("x-access-token"):
             token = request.headers.get("x-access-token")
+        elif request.query_params.get("token"):
+            token = request.query_params.get("token")
+        elif request.cookies.get("access_token"):
+            token = request.cookies.get("access_token")
 
     if not token:
         return None

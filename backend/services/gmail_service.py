@@ -341,17 +341,23 @@ async def save_user_gmail_tokens(
         account.encrypted_access_token = encrypt_token(access_token)
         if refresh_token:
             account.encrypted_refresh_token = encrypt_token(refresh_token)
+        account.token_expiry = expiry_epoch
         account.token_expiry_epoch = expiry_epoch
+        account.google_account_email = google_email or account.google_account_email or account.google_email
         account.google_email = google_email or account.google_email
+        account.provider = "google"
         account.granted_scopes = " ".join(SCOPES)
         account.is_active = True
         account.updated_at = datetime.now(timezone.utc)
     else:
         account = GmailAccount(
             user_id=user_id,
+            google_account_email=google_email,
             google_email=google_email,
+            provider="google",
             encrypted_access_token=encrypt_token(access_token),
             encrypted_refresh_token=encrypt_token(refresh_token) if refresh_token else "",
+            token_expiry=expiry_epoch,
             token_expiry_epoch=expiry_epoch,
             granted_scopes=" ".join(SCOPES),
             is_active=True,

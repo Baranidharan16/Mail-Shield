@@ -36,21 +36,27 @@ class GmailAccount(Base):
         index=True,
     )
 
-    # The google-account email that was authorised (informational only)
+    # The google-account email that was authorised
+    google_account_email = Column(String(255), nullable=True)
     google_email = Column(String(255), nullable=True)
+
+    # Provider name (always 'google')
+    provider = Column(String(50), default="google", nullable=False)
 
     # Fernet-encrypted OAuth tokens (base64 ciphertext stored as text)
     # NEVER store plaintext access_token or refresh_token.
     encrypted_access_token = Column(Text, nullable=True)
     encrypted_refresh_token = Column(Text, nullable=True)
 
-    # Epoch seconds when the access_token expires (from Google token response)
+    # Token expiry timestamp / epoch seconds
+    token_expiry = Column(String(64), nullable=True)
     token_expiry_epoch = Column(String(32), nullable=True)
 
     # Comma-separated list of granted scopes
     granted_scopes = Column(Text, nullable=True)
 
     is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     connected_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
