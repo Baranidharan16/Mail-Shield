@@ -32,6 +32,7 @@ def init_db() -> None:
     # Import models so they are registered on Base.metadata before create_all
     from app.models import investigation  # noqa: F401
     from app.models import user  # noqa: F401
+    from app.models import gmail_account  # noqa: F401  ← per-user Gmail token storage
 
     inspector = sqlalchemy.inspect(engine)
     existing_tables = set(inspector.get_table_names())

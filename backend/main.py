@@ -92,12 +92,24 @@ CORS_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 
+env_cors = os.getenv("CORS_ORIGINS")
+if env_cors:
+    for origin in env_cors.split(","):
+        o = origin.strip()
+        if o and o not in CORS_ORIGINS:
+            CORS_ORIGINS.append(o)
+
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url and frontend_url not in CORS_ORIGINS:
+    CORS_ORIGINS.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
 )
 
 # ── Mount Core API Routers ───────────────────────────────────────────────────
@@ -105,7 +117,6 @@ app.include_router(health_router)
 app.include_router(analysis_router)
 app.include_router(assistant_router)
 app.include_router(auth_router)
-app.include_router(auth_router, prefix="/api/v1")
 app.include_router(gmail_router)
 
 # ── Mount Legacy Routers to Preserve Platform Depth (SOC, Dossier, Timeline) ─
@@ -121,7 +132,9 @@ try:
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(sse.router, prefix="/api/v1")
     app.include_router(system.router, prefix="/api/v1")
-    logger.info("Mounted legacy forensic platform API routers.")
+    # Also mount auth at /api/v1/auth for clients that use that prefix
+    app.include_router(auth_router, prefix="/api/v1")
+    logger.info("Mounted all MailShield API routers (auth + forensic + legacy).")
 except Exception as e:
     logger.warning("Could not mount legacy routers: %s", e)
 

@@ -25,8 +25,8 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-import keras
-import tensorflow as tf
+# keras and tensorflow are loaded lazily inside MLService.load()
+# so the backend starts successfully even without TF/Keras installed.
 
 from schemas.analysis import MLAnalysisResult
 
@@ -47,11 +47,16 @@ class MLService:
         if not Path(self.model_path).exists():
             logger.error("ML model file not found at: %s", self.model_path)
             raise FileNotFoundError(f"ML model file not found at {self.model_path}")
-        
-        logger.info("Loading MailShield ML model from: %s", self.model_path)
-        self.model = keras.models.load_model(self.model_path)
-        self._is_loaded = True
-        logger.info("MailShield ML model successfully loaded into memory.")
+
+        try:
+            import keras as _keras  # lazy import — TF/Keras not required at startup
+            logger.info("Loading MailShield ML model from: %s", self.model_path)
+            self.model = _keras.models.load_model(self.model_path)
+            self._is_loaded = True
+            logger.info("MailShield ML model successfully loaded into memory.")
+        except ImportError:
+            logger.error("Keras is not installed. ML predictions will be unavailable.")
+            raise
 
     def is_loaded(self) -> bool:
         return self._is_loaded and self.model is not None
@@ -67,6 +72,7 @@ class MLService:
         if not text or not text.strip():
             text = "Empty email body"
 
+        import tensorflow as tf  # lazy import
         # Model expects a 1D tensor of strings: shape (batch_size,)
         input_tensor = tf.constant([text], dtype=tf.string)
         raw_pred = self.model.predict(input_tensor, verbose=0)

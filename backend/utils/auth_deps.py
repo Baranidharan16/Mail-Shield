@@ -74,3 +74,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+# Alias for semantic clarity in Gmail and other strict-auth routes
+get_required_current_user = get_current_user

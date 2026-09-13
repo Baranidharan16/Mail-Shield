@@ -41,6 +41,14 @@ class User(Base):
         order_by="desc(Investigation.created_at)",
     )
 
+    # 1-to-1 relationship with linked Gmail account (per-user OAuth isolation)
+    gmail_account = relationship(
+        "GmailAccount",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
     def to_dict(self) -> dict:
         """Returns safe user representation (never exposes password_hash)."""
         return {

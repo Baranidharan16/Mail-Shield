@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models.investigation import Alert, Investigation, AuditLog
+from app.models.user import User
 from app.core.auth import get_current_caller
+from utils.auth_deps import get_optional_current_user
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -18,8 +20,19 @@ class AlertPatchRequest(BaseModel):
 
 
 @router.get("")
-def list_alerts(db: Session = Depends(get_db), limit: int = 100, offset: int = 0):
-    alerts = db.query(Alert).order_by(Alert.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+def list_alerts(
+    db: Session = Depends(get_db),
+    limit: int = 100,
+    offset: int = 0,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    """Returns alerts scoped to the authenticated user's investigations."""
+    q = db.query(Alert).join(Investigation, Alert.investigation_id == Investigation.id)
+    if current_user:
+        q = q.filter(Investigation.user_id == current_user.id)
+    else:
+        q = q.filter(Investigation.user_id.is_(None))
+    alerts = q.order_by(Alert.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
     out = []
     for a in alerts:
         inv = db.get(Investigation, a.investigation_id)

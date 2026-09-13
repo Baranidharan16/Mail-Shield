@@ -40,3 +40,6 @@ pytest-asyncio==1.4.0
 # Authentication & Password Security
 argon2-cffi>=23.1.0
 pyjwt>=2.8.0
+
+# Token Encryption (Fernet — for Gmail OAuth token storage at rest)
+cryptography>=41.0.0

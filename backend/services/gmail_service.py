@@ -1,25 +1,40 @@
 """
-MailShield - Gmail OAuth 2.0 & Email Acquisition Service
+MailShield - Gmail OAuth 2.0 & Email Acquisition Service (Per-User, DB-Backed)
+
 Handles:
-  1. Google OAuth 2.0 authorization flow (PKCE / Code exchange)
-  2. Gmail profile & inbox synchronization
-  3. Raw email acquisition (RFC822 byte streams via format=raw)
-  4. Autonomous MailShield Quarantine (via MAILSHIELD_QUARANTINE label)
-  5. Reversible quarantine release
-  6. Resilient fallback / sandbox mailbox support for offline/demo operation
+  1. Google OAuth 2.0 authorization flow (Code exchange)
+  2. Per-user token storage — encrypted at rest in gmail_accounts table
+  3. Gmail profile & inbox synchronization (per authenticated user)
+  4. Raw email acquisition (RFC822 byte streams via format=raw)
+  5. Autonomous MailShield Quarantine (via MAILSHIELD_QUARANTINE label)
+  6. Reversible quarantine release
+
+SECURITY:
+  - GmailService is NOT a global singleton. Every request loads the token
+    for the specific authenticated user from the database.
+  - OAuth tokens are Fernet-encrypted at rest in the gmail_accounts table.
+  - NEVER expose access_token or refresh_token to the browser.
+  - GOOGLE_CLIENT_SECRET lives only in the backend environment.
+
+Gmail OAuth Scopes used:
+  - https://www.googleapis.com/auth/gmail.readonly  (inbox forensic access)
+  - https://www.googleapis.com/auth/gmail.modify    (quarantine label ops)
+  - https://www.googleapis.com/auth/userinfo.email
+  - https://www.googleapis.com/auth/userinfo.profile
 """
 from __future__ import annotations
 
 import base64
-import email
 import hashlib
-import json
 import logging
 import os
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
 import httpx
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger("mailshield.services.gmail")
 
@@ -27,6 +42,7 @@ GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
+# OAuth scopes — gmail.readonly REQUIRED for inbox forensic access
 SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
@@ -35,179 +51,195 @@ SCOPES = [
 ]
 
 
-class GmailService:
-    def __init__(self):
-        self.api_key = os.getenv("GOOGLE_API_KEY", "")
-        self.client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-        self.client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
-        self.redirect_uri = os.getenv(
-            "GOOGLE_REDIRECT_URI", "http://localhost:8000/api/v1/auth/google/callback"
+def _get_client_id() -> str:
+    return os.getenv("GOOGLE_CLIENT_ID", "")
+
+
+def _get_client_secret() -> str:
+    return os.getenv("GOOGLE_CLIENT_SECRET", "")
+
+
+def _get_redirect_uri() -> str:
+    return os.getenv(
+        "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
+    )
+
+
+def build_authorization_url(state: str) -> str:
+    """Generates Google OAuth 2.0 authorization URL for the given state token."""
+    client_id = _get_client_id()
+    if not client_id:
+        raise ValueError(
+            "GOOGLE_CLIENT_ID is not configured. "
+            "Set it in backend/.env to enable Gmail OAuth."
         )
-        # Store active session in memory (can be persisted to db)
-        self.tokens: Dict[str, Any] = {}
-        self.user_profile: Optional[Dict[str, Any]] = None
-        self.is_connected: bool = False
-        self.quarantined_messages: set = set()
+    params = {
+        "client_id": client_id,
+        "redirect_uri": _get_redirect_uri(),
+        "response_type": "code",
+        "scope": " ".join(SCOPES),
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+        "prompt": "consent",
+        "state": state,
+    }
+    return f"{GOOGLE_AUTH_ENDPOINT}?{urllib.parse.urlencode(params)}"
 
-    def get_authorization_url(self, state: str = "mailshield_auth") -> str:
-        """Generates Google OAuth 2.0 authorization URL."""
-        client_id = self.client_id or "648931205934-mailshield-dev.apps.googleusercontent.com"
-        params = {
-            "client_id": client_id,
-            "redirect_uri": self.redirect_uri,
-            "response_type": "code",
-            "scope": " ".join(SCOPES),
-            "access_type": "offline",
-            "include_granted_scopes": "true",
-            "prompt": "consent",
-            "state": state,
-        }
-        return f"{GOOGLE_AUTH_ENDPOINT}?{urllib.parse.urlencode(params)}"
 
-    async def exchange_code_for_tokens(self, code: str) -> Dict[str, Any]:
-        """Exchanges authorization code for access and refresh tokens."""
-        if not self.client_id or not self.client_secret:
-            logger.warning("Google Client ID or Secret missing; activating verified sandbox profile.")
-            self.is_connected = True
-            self.user_profile = {
-                "emailAddress": "security.analyst@mailshield.internal",
-                "messagesTotal": 142,
-                "threadsTotal": 87,
-                "historyId": "992410",
-                "connected_at": datetime.now(timezone.utc).isoformat(),
-            }
-            return {"access_token": "mock_token_sandbox", "expires_in": 3600}
+async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
+    """
+    Exchanges Google authorization code for access + refresh tokens.
+    Returns the raw token response dict from Google.
+    Raises HTTPException on failure — never silently falls back to sandbox.
+    """
+    client_id = _get_client_id()
+    client_secret = _get_client_secret()
+    if not client_id or not client_secret:
+        raise ValueError(
+            "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured to exchange OAuth codes."
+        )
 
-        data = {
-            "code": code,
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-            "redirect_uri": self.redirect_uri,
-            "grant_type": "authorization_code",
-        }
+    data = {
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": _get_redirect_uri(),
+        "grant_type": "authorization_code",
+    }
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(GOOGLE_TOKEN_ENDPOINT, data=data)
-            if resp.status_code != 200:
-                logger.error("Token exchange failed: %s", resp.text)
-                # Graceful sandbox connection to prevent platform crash
-                self.is_connected = True
-                self.user_profile = {
-                    "emailAddress": "analyst.soc@mailshield.org",
-                    "messagesTotal": 54,
-                    "threadsTotal": 42,
-                    "connected_at": datetime.now(timezone.utc).isoformat(),
-                }
-                return {"access_token": "sandbox_access_token", "status": "simulated"}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(GOOGLE_TOKEN_ENDPOINT, data=data)
+        if resp.status_code != 200:
+            logger.error(
+                "Google token exchange failed (status=%s): %s", resp.status_code, resp.text
+            )
+            raise ValueError(f"Google OAuth token exchange failed: {resp.text}")
+        return resp.json()
 
-            tokens = resp.json()
-            self.tokens = tokens
-            self.is_connected = True
-            await self.fetch_profile()
-            return tokens
+
+class UserGmailSession:
+    """
+    Lightweight per-request Gmail session for one authenticated user.
+    Loads tokens from the database via user_id.
+    Does NOT store state across requests — all state lives in the DB.
+    """
+
+    def __init__(self, access_token: str, user_email: str = ""):
+        self._access_token = access_token
+        self.user_email = user_email
+        self._headers = {"Authorization": f"Bearer {access_token}"}
+
+    @property
+    def is_connected(self) -> bool:
+        return bool(self._access_token)
 
     async def fetch_profile(self) -> Dict[str, Any]:
-        """Retrieves user's Gmail profile metadata."""
-        access_token = self.tokens.get("access_token")
-        if not access_token:
-            if self.is_connected and self.user_profile:
-                return self.user_profile
+        """Retrieves Gmail profile for the authenticated user."""
+        if not self._access_token:
+            return {"emailAddress": "", "messagesTotal": 0, "is_connected": False}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{GMAIL_API_BASE}/profile", headers=self._headers)
+            if resp.status_code == 200:
+                return resp.json()
+            logger.warning("Gmail profile fetch failed (%s): %s", resp.status_code, resp.text)
+            return {"emailAddress": self.user_email, "messagesTotal": 0, "is_connected": True}
+
+    async def list_messages(
+        self, query: str = "", max_results: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Lists emails from user's inbox with sender, subject, snippet.
+        Returns real Gmail API data only — no sandbox/fake messages.
+        """
+        params: Dict[str, Any] = {"maxResults": max_results, "labelIds": "INBOX"}
+        if query:
+            params["q"] = query
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{GMAIL_API_BASE}/messages", headers=self._headers, params=params
+            )
+            if resp.status_code != 200:
+                logger.error("Gmail list messages failed (%s): %s", resp.status_code, resp.text)
+                return []
+
+            raw_msgs = resp.json().get("messages", [])
+            detailed: List[Dict[str, Any]] = []
+            for m in raw_msgs[:max_results]:
+                det = await self._get_message_metadata(m["id"])
+                if det:
+                    detailed.append(det)
+            return detailed
+
+    async def _get_message_metadata(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Fetches header metadata for inbox display."""
+        params = {
+            "format": "metadata",
+            "metadataHeaders": ["From", "To", "Subject", "Date", "Message-ID"],
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{GMAIL_API_BASE}/messages/{message_id}",
+                headers=self._headers,
+                params=params,
+            )
+            if resp.status_code != 200:
+                return None
+            d = resp.json()
+            h = {
+                hdr["name"].lower(): hdr["value"]
+                for hdr in d.get("payload", {}).get("headers", [])
+            }
+            labels = d.get("labelIds", [])
             return {
-                "emailAddress": "not_connected",
-                "messagesTotal": 0,
-                "is_connected": False,
+                "id": d["id"],
+                "threadId": d["threadId"],
+                "sender": h.get("from", "Unknown"),
+                "subject": h.get("subject", "(No Subject)"),
+                "date": h.get("date", ""),
+                "snippet": d.get("snippet", ""),
+                "is_quarantined": "MAILSHIELD_QUARANTINE" in labels,
+                "labels": labels,
             }
 
-        headers = {"Authorization": f"Bearer {access_token}"}
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{GMAIL_API_BASE}/profile", headers=headers)
-            if resp.status_code == 200:
-                self.user_profile = resp.json()
-                self.is_connected = True
-                return self.user_profile
-            else:
-                logger.warning("Failed to fetch live Gmail profile: %s", resp.text)
-                return self.user_profile or {"emailAddress": "analyst@mailshield.io", "is_connected": True}
-
-    async def list_messages(self, query: str = "", max_results: int = 15) -> List[Dict[str, Any]]:
-        """
-        Lists emails from user's inbox with sender, subject, snippet, and threat tags.
-        If live access token is unavailable, provides curated real-world forensic samples.
-        """
-        access_token = self.tokens.get("access_token")
-        if access_token and access_token != "sandbox_access_token":
-            headers = {"Authorization": f"Bearer {access_token}"}
-            params = {"maxResults": max_results}
-            if query:
-                params["q"] = query
-
-            async with httpx.AsyncClient(timeout=12.0) as client:
-                resp = await client.get(f"{GMAIL_API_BASE}/messages", headers=headers, params=params)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    raw_msgs = data.get("messages", [])
-                    detailed = []
-                    for m in raw_msgs[:max_results]:
-                        det = await self.get_message_metadata(m["id"], access_token)
-                        if det:
-                            detailed.append(det)
-                    return detailed
-
-        # Curated Real-World Forensic Test Messages for Live Inbox Acquisition
-        return self._get_sandbox_messages(query)
-
-    async def get_message_metadata(self, message_id: str, access_token: str) -> Optional[Dict[str, Any]]:
-        """Fetches header metadata for display in the inbox selector."""
-        headers = {"Authorization": f"Bearer {access_token}"}
-        params = {"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date", "Message-ID"]}
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{GMAIL_API_BASE}/messages/{message_id}", headers=headers, params=params)
-            if resp.status_code == 200:
-                d = resp.json()
-                payload_headers = {h["name"].lower(): h["value"] for h in d.get("payload", {}).get("headers", [])}
-                labels = d.get("labelIds", [])
-                return {
-                    "id": d["id"],
-                    "threadId": d["threadId"],
-                    "sender": payload_headers.get("from", "Unknown"),
-                    "subject": payload_headers.get("subject", "(No Subject)"),
-                    "date": payload_headers.get("date", ""),
-                    "snippet": d.get("snippet", ""),
-                    "is_quarantined": "MAILSHIELD_QUARANTINE" in labels or message_id in self.quarantined_messages,
-                    "labels": labels,
-                }
-        return None
-
     async def get_raw_email(self, message_id: str) -> bytes:
-        """Fetches complete raw RFC822 email bytes from Gmail API."""
-        access_token = self.tokens.get("access_token")
-        if access_token and access_token != "sandbox_access_token":
-            headers = {"Authorization": f"Bearer {access_token}"}
-            params = {"format": "raw"}
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(f"{GMAIL_API_BASE}/messages/{message_id}", headers=headers, params=params)
-                if resp.status_code == 200:
-                    raw_b64 = resp.json().get("raw", "")
+        """
+        Fetches complete raw RFC822 email bytes from Gmail API.
+        Returns empty bytes on failure — never returns fabricated data.
+        """
+        params = {"format": "raw"}
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                f"{GMAIL_API_BASE}/messages/{message_id}",
+                headers=self._headers,
+                params=params,
+            )
+            if resp.status_code == 200:
+                raw_b64 = resp.json().get("raw", "")
+                if raw_b64:
                     return base64.urlsafe_b64decode(raw_b64.encode("utf-8") + b"==")
-
-        # Fallback to authentic RFC822 test emails corresponding to the message ID
-        return self._get_sandbox_raw_email(message_id)
+            logger.error(
+                "Gmail raw email fetch failed (%s) for msg=%s: %s",
+                resp.status_code, message_id, resp.text,
+            )
+            return b""
 
     async def quarantine_message(self, message_id: str) -> Dict[str, Any]:
         """
-        Applies reversible quarantine by adding MAILSHIELD_QUARANTINE label
-        and removing INBOX label.
+        Applies reversible quarantine: adds MAILSHIELD_QUARANTINE label, removes INBOX.
         """
-        self.quarantined_messages.add(message_id)
-        access_token = self.tokens.get("access_token")
-        if access_token and access_token != "sandbox_access_token":
-            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-            payload = {
-                "addLabelIds": ["MAILSHIELD_QUARANTINE"],
-                "removeLabelIds": ["INBOX"],
-            }
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(f"{GMAIL_API_BASE}/messages/{message_id}/modify", headers=headers, json=payload)
+        payload = {
+            "addLabelIds": ["MAILSHIELD_QUARANTINE"],
+            "removeLabelIds": ["INBOX"],
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{GMAIL_API_BASE}/messages/{message_id}/modify",
+                headers={**self._headers, "Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code not in (200, 204):
+                logger.warning("Quarantine label apply returned %s", resp.status_code)
 
         return {
             "status": "QUARANTINED",
@@ -216,22 +248,23 @@ class GmailService:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "label_applied": "MAILSHIELD_QUARANTINE",
             "action": "Removed from primary inbox view and isolated in quarantine vault.",
+            "reversible": True,
         }
 
     async def release_message(self, message_id: str) -> Dict[str, Any]:
         """Releases quarantined email back to the standard inbox."""
-        if message_id in self.quarantined_messages:
-            self.quarantined_messages.remove(message_id)
-
-        access_token = self.tokens.get("access_token")
-        if access_token and access_token != "sandbox_access_token":
-            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-            payload = {
-                "addLabelIds": ["INBOX"],
-                "removeLabelIds": ["MAILSHIELD_QUARANTINE"],
-            }
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(f"{GMAIL_API_BASE}/messages/{message_id}/modify", headers=headers, json=payload)
+        payload = {
+            "addLabelIds": ["INBOX"],
+            "removeLabelIds": ["MAILSHIELD_QUARANTINE"],
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{GMAIL_API_BASE}/messages/{message_id}/modify",
+                headers={**self._headers, "Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code not in (200, 204):
+                logger.warning("Quarantine release returned %s", resp.status_code)
 
         return {
             "status": "RELEASED",
@@ -240,127 +273,157 @@ class GmailService:
             "action": "MAILSHIELD_QUARANTINE label removed; restored to user inbox.",
         }
 
+
+def load_user_gmail_session(user_id: str, db: Session) -> Optional[UserGmailSession]:
+    """
+    Loads the Gmail session for a specific user from the database.
+    Returns None if the user has no linked Gmail account or tokens are missing.
+    Decrypts stored tokens using the Fernet key.
+    """
+    from app.models.gmail_account import GmailAccount
+    from utils.token_crypto import decrypt_token
+
+    account = db.query(GmailAccount).filter(
+        GmailAccount.user_id == user_id,
+        GmailAccount.is_active == True,  # noqa: E712
+    ).first()
+
+    if not account:
+        return None
+
+    access_token = decrypt_token(account.encrypted_access_token or "")
+    if not access_token:
+        logger.warning("Gmail account for user %s has no decryptable access token", user_id)
+        return None
+
+    return UserGmailSession(
+        access_token=access_token,
+        user_email=account.google_email or "",
+    )
+
+
+async def save_user_gmail_tokens(
+    user_id: str,
+    tokens: Dict[str, Any],
+    db: Session,
+) -> None:
+    """
+    Saves (or updates) the Gmail OAuth tokens for a user in the database.
+    Encrypts tokens before storing.
+    Also fetches the Google email address to store alongside the tokens.
+    """
+    from app.models.gmail_account import GmailAccount
+    from utils.token_crypto import encrypt_token
+
+    access_token = tokens.get("access_token", "")
+    refresh_token = tokens.get("refresh_token", "")
+    expires_in = tokens.get("expires_in", 3600)
+
+    expiry_epoch = str(int(time.time()) + int(expires_in))
+
+    # Fetch the Google account email
+    google_email = ""
+    if access_token:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{GMAIL_API_BASE}/profile",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if resp.status_code == 200:
+                    google_email = resp.json().get("emailAddress", "")
+        except Exception as e:
+            logger.warning("Could not fetch Google profile email: %s", e)
+
+    # Upsert the GmailAccount record for this user
+    account = db.query(GmailAccount).filter(GmailAccount.user_id == user_id).first()
+    if account:
+        account.encrypted_access_token = encrypt_token(access_token)
+        if refresh_token:
+            account.encrypted_refresh_token = encrypt_token(refresh_token)
+        account.token_expiry_epoch = expiry_epoch
+        account.google_email = google_email or account.google_email
+        account.granted_scopes = " ".join(SCOPES)
+        account.is_active = True
+        account.updated_at = datetime.now(timezone.utc)
+    else:
+        account = GmailAccount(
+            user_id=user_id,
+            google_email=google_email,
+            encrypted_access_token=encrypt_token(access_token),
+            encrypted_refresh_token=encrypt_token(refresh_token) if refresh_token else "",
+            token_expiry_epoch=expiry_epoch,
+            granted_scopes=" ".join(SCOPES),
+            is_active=True,
+        )
+        db.add(account)
+
+    db.commit()
+    logger.info(
+        "Gmail tokens saved for user_id=%s, google_email=%s", user_id, google_email
+    )
+
+
+def disconnect_user_gmail(user_id: str, db: Session) -> None:
+    """Deactivates the Gmail integration for a user (tokens stay for audit)."""
+    from app.models.gmail_account import GmailAccount
+
+    account = db.query(GmailAccount).filter(GmailAccount.user_id == user_id).first()
+    if account:
+        account.is_active = False
+        account.encrypted_access_token = ""
+        account.encrypted_refresh_token = ""
+        db.commit()
+        logger.info("Gmail disconnected for user_id=%s", user_id)
+
+
+# ── Backward-compatibility shim ──────────────────────────────────────────────
+# The old code called get_gmail_service() which returned a global singleton.
+# We provide a stub here so imports don't break during transition, but new
+# code MUST use load_user_gmail_session() instead.
+
+class _DeprecatedGmailServiceStub:
+    """Stub for backward compatibility — do not use in new code."""
+    is_connected = False
+    tokens: Dict = {}
+    user_profile: Optional[Dict] = None
+    quarantined_messages: set = set()
+
+    def get_authorization_url(self, state: str = "mailshield_auth") -> str:
+        return build_authorization_url(state)
+
+    async def exchange_code_for_tokens(self, code: str) -> Dict:
+        return await exchange_code_for_tokens(code)
+
+    async def fetch_profile(self) -> Dict:
+        return {"emailAddress": "", "messagesTotal": 0}
+
+    async def list_messages(self, query="", max_results=15) -> List:
+        return []
+
+    async def get_raw_email(self, message_id: str) -> bytes:
+        return b""
+
+    async def quarantine_message(self, message_id: str) -> Dict:
+        return {"status": "UNAVAILABLE", "message_id": message_id}
+
+    async def release_message(self, message_id: str) -> Dict:
+        return {"status": "UNAVAILABLE", "message_id": message_id}
+
     def disconnect(self):
-        """Disconnects current Gmail integration."""
-        self.tokens.clear()
-        self.user_profile = None
-        self.is_connected = False
-
-    def _get_sandbox_messages(self, query: str = "") -> List[Dict[str, Any]]:
-        """Provides realistic cybersecurity test emails for demonstration & offline testing."""
-        all_samples = [
-            {
-                "id": "msg_threat_001",
-                "threadId": "th_001",
-                "sender": "CEO Office <urgent-exec@secure-acme-corp.com>",
-                "subject": "URGENT: Wire Transfer Authorization Required Before 5 PM",
-                "date": "Today, 10:24 AM",
-                "snippet": "Please process the urgent vendor disbursement invoice attached. Do not call, I am currently in an executive briefing...",
-                "threat_preview": "CRITICAL",
-                "is_quarantined": "msg_threat_001" in self.quarantined_messages,
-                "labels": ["INBOX", "UNREAD", "EXTERNAL"],
-            },
-            {
-                "id": "msg_threat_002",
-                "threadId": "th_002",
-                "sender": "Microsoft 365 Security <no-reply@login-microsoftonline-verify.com>",
-                "subject": "Security Alert: Unusual sign-in activity detected on your account",
-                "date": "Today, 08:15 AM",
-                "snippet": "We detected an unauthorized sign-in from Moscow, Russia. Click here to confirm your password and secure your account immediately...",
-                "threat_preview": "HIGH",
-                "is_quarantined": "msg_threat_002" in self.quarantined_messages,
-                "labels": ["INBOX", "IMPORTANT"],
-            },
-            {
-                "id": "msg_threat_003",
-                "threadId": "th_003",
-                "sender": "DHL Express Tracking <shipment-notify@dhl-delivery-status.net>",
-                "subject": "Package Delivery Failure: Shipment #DHL-8894102-IN",
-                "date": "Yesterday, 04:42 PM",
-                "snippet": "Your package could not be delivered due to incorrect street address. Download the attached receipt shipping_doc.iso to confirm pickup...",
-                "threat_preview": "CRITICAL",
-                "is_quarantined": "msg_threat_003" in self.quarantined_messages,
-                "labels": ["INBOX"],
-            },
-            {
-                "id": "msg_threat_004",
-                "threadId": "th_004",
-                "sender": "GitHub Notifications <notifications@github.com>",
-                "subject": "[GitHub] Run summary: MailShield CI / Tests Passed",
-                "date": "Yesterday, 02:10 PM",
-                "snippet": "All unit tests and static analysis passed on commit 8d39fbc for branch main.",
-                "threat_preview": "SAFE",
-                "is_quarantined": "msg_threat_004" in self.quarantined_messages,
-                "labels": ["INBOX"],
-            },
-        ]
-        if query:
-            q_lower = query.lower()
-            return [m for m in all_samples if q_lower in m["subject"].lower() or q_lower in m["sender"].lower()]
-        return all_samples
-
-    def _get_sandbox_raw_email(self, message_id: str) -> bytes:
-        """Returns standard RFC822 raw text for test emails."""
-        if message_id == "msg_threat_001":
-            return (
-                b"Received: from mail-sender.secure-acme-corp.com (unknown [185.220.101.45])\r\n"
-                b"    by mx.google.com with ESMTPS id abc123xyz\r\n"
-                b"    for <analyst@mailshield.org>; Sat, 12 Sep 2026 10:24:15 +0530\r\n"
-                b"Received-SPF: softfail (google.com: domain of transitioning urgent-exec@secure-acme-corp.com does not designate 185.220.101.45 as permitted sender)\r\n"
-                b"Authentication-Results: mx.google.com; spf=softfail; dkim=neutral; dmarc=fail\r\n"
-                b"From: CEO Office <urgent-exec@secure-acme-corp.com>\r\n"
-                b"To: analyst@mailshield.org\r\n"
-                b"Subject: URGENT: Wire Transfer Authorization Required Before 5 PM\r\n"
-                b"Date: Sat, 12 Sep 2026 10:24:00 +0530\r\n"
-                b"Message-ID: <ceo-wire-20260912-884102@secure-acme-corp.com>\r\n"
-                b"MIME-Version: 1.0\r\n"
-                b"Content-Type: text/plain; charset=UTF-8\r\n"
-                b"\r\n"
-                b"Please process the urgent vendor disbursement invoice immediately.\r\n"
-                b"Wire $48,500 to account #994810294 routing 021000021.\r\n"
-                b"Do not call or discuss as I am in an executive closed-door briefing.\r\n"
-            )
-        elif message_id == "msg_threat_002":
-            return (
-                b"Received: from relay01.login-microsoftonline-verify.com (unknown [194.26.29.112])\r\n"
-                b"    by mx.google.com with ESMTPS id msft8899\r\n"
-                b"    for <analyst@mailshield.org>; Sat, 12 Sep 2026 08:15:10 +0530\r\n"
-                b"Received-SPF: fail (google.com: domain of no-reply@login-microsoftonline-verify.com does not designate 194.26.29.112)\r\n"
-                b"Authentication-Results: mx.google.com; spf=fail; dkim=fail; dmarc=fail\r\n"
-                b"From: Microsoft 365 Security <no-reply@login-microsoftonline-verify.com>\r\n"
-                b"To: analyst@mailshield.org\r\n"
-                b"Subject: Security Alert: Unusual sign-in activity detected on your account\r\n"
-                b"Date: Sat, 12 Sep 2026 08:15:00 +0530\r\n"
-                b"Message-ID: <msft-sec-20260912-alert@login-microsoftonline-verify.com>\r\n"
-                b"MIME-Version: 1.0\r\n"
-                b"Content-Type: text/html; charset=UTF-8\r\n"
-                b"\r\n"
-                b"<html><body><p>We detected an unauthorized sign-in from Moscow, Russia.</p>"
-                b"<p><a href='http://login-microsoftonline-verify.com/login/auth-session?user=analyst'>Click here to confirm password</a></p></body></html>\r\n"
-            )
-        else:
-            return (
-                b"Received: from github-smtp.github.com (smtp.github.com [140.82.112.21])\r\n"
-                b"    by mx.google.com with ESMTPS id gh112233\r\n"
-                b"    for <analyst@mailshield.org>; Fri, 11 Sep 2026 14:10:00 +0530\r\n"
-                b"Received-SPF: pass (google.com: domain of notifications@github.com designates 140.82.112.21 as permitted sender)\r\n"
-                b"Authentication-Results: mx.google.com; spf=pass; dkim=pass; dmarc=pass\r\n"
-                b"From: GitHub Notifications <notifications@github.com>\r\n"
-                b"To: analyst@mailshield.org\r\n"
-                b"Subject: [GitHub] Run summary: MailShield CI / Tests Passed\r\n"
-                b"Date: Fri, 11 Sep 2026 14:10:00 +0530\r\n"
-                b"Message-ID: <github-ci-20260911@github.com>\r\n"
-                b"MIME-Version: 1.0\r\n"
-                b"Content-Type: text/plain; charset=UTF-8\r\n"
-                b"\r\n"
-                b"All unit tests and static analysis passed on commit 8d39fbc for branch main.\r\n"
-            )
+        pass
 
 
-_gmail_service: Optional[GmailService] = None
+_stub = _DeprecatedGmailServiceStub()
 
-def get_gmail_service() -> GmailService:
-    global _gmail_service
-    if _gmail_service is None:
-        _gmail_service = GmailService()
-    return _gmail_service
+
+def get_gmail_service() -> _DeprecatedGmailServiceStub:
+    """
+    DEPRECATED: Returns a backward-compat stub.
+    New code must use load_user_gmail_session(user_id, db) directly.
+    """
+    logger.warning(
+        "get_gmail_service() is deprecated. Use load_user_gmail_session(user_id, db) "
+        "for proper per-user Gmail isolation."
+    )
+    return _stub
