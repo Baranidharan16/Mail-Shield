@@ -10,6 +10,7 @@ from app.core.auth import get_current_caller
 from app.core.config import get_settings
 from app.database.session import get_db
 from app.models.investigation import Investigation
+from app.models.user import User
 from app.schemas.investigation import (
     InvestigationCreateResponse,
     InvestigationDetail,
@@ -17,6 +18,8 @@ from app.schemas.investigation import (
 )
 from app.services import investigation_service
 from app.utils.storage import FileTooLargeError, UnsupportedFileTypeError
+from utils.auth_deps import get_optional_current_user
+
 
 logger = logging.getLogger("forensic_platform")
 settings = get_settings()
@@ -30,19 +33,24 @@ async def create_investigation(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     """Upload a .eml file and create a new investigation (status=QUEUED).
-    Analysis is NOT run synchronously here - call POST /investigations/{id}/analyze
-    (or rely on auto-analyze below) to kick off processing.
-
-    If AUTH_ENABLED=true, requires a valid `X-API-Key` header; the resolved
-    caller identity is recorded on the investigation for auditing.
+    Automatically associates investigation with the authenticated user.
     """
     raw_bytes = await file.read()
 
+    resolved_caller = current_user.email if current_user else caller
+    resolved_user_id = current_user.id if current_user else None
+
     try:
         investigation = investigation_service.create_investigation(
-            db, raw_bytes, file.filename or "upload.eml", file.content_type, created_by=caller
+            db,
+            raw_bytes,
+            file.filename or "upload.eml",
+            file.content_type,
+            created_by=resolved_caller,
+            user_id=resolved_user_id,
         )
     except UnsupportedFileTypeError as exc:
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc))
@@ -69,12 +77,15 @@ async def trigger_analyze(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
-    """Explicitly (re)triggers analysis for an existing investigation, per the
-    required API surface. Re-reads the stored evidence file from disk."""
+    """Explicitly (re)triggers analysis for an existing investigation. Enforces user ownership."""
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+
+    if investigation.user_id and (not current_user or current_user.id != investigation.user_id):
+        raise HTTPException(status_code=403, detail="Forbidden: Access denied to this investigation.")
 
     from pathlib import Path
     storage_path = Path(settings.UPLOAD_STORAGE_DIR).resolve() / investigation.filename
@@ -96,11 +107,20 @@ def list_investigations(
     limit: int = 50,
     offset: int = 0,
     caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     limit = max(1, min(limit, 200))
+    q = db.query(Investigation)
+
+    if current_user:
+        # User A only sees User A's investigations
+        q = q.filter(Investigation.user_id == current_user.id)
+    else:
+        # Unauthenticated users only see public unassigned demo cases
+        q = q.filter(Investigation.user_id.is_(None))
+
     rows = (
-        db.query(Investigation)
-        .order_by(Investigation.created_at.desc())
+        q.order_by(Investigation.created_at.desc())
         .offset(offset)
         .limit(limit)
         .all()
@@ -109,11 +129,50 @@ def list_investigations(
 
 
 @router.get("/{investigation_id}", response_model=InvestigationDetail)
-def get_investigation(investigation_id: str, db: Session = Depends(get_db), caller: str | None = Depends(get_current_caller)):
+def get_investigation(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
-    return investigation
+
+    # Strict user isolation check: User A cannot view User B's investigations
+    if investigation.user_id:
+        if not current_user or current_user.id != investigation.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Forbidden: You do not have permission to view this investigation.",
+            )
+
+    detail = InvestigationDetail.model_validate(investigation)
+
+    # Enrich with real-time MailShield Keras ML & NLP predictions from trained models
+    try:
+        from services.ml_service import get_ml_service
+        from services.nlp_service import get_nlp_service
+        from pathlib import Path
+
+        storage_path = Path(settings.UPLOAD_STORAGE_DIR).resolve() / investigation.filename
+        text_content = ""
+        if storage_path.exists():
+            from services.email_parser import parse_eml_bytes
+            parsed = parse_eml_bytes(storage_path.read_bytes())
+            text_content = parsed.model_text
+        elif investigation.email_metadata:
+            text_content = f"{investigation.email_metadata.subject or ''}\n{investigation.email_metadata.from_address or ''}"
+
+        if text_content:
+            ml_res = get_ml_service().predict(text_content)
+            nlp_res = get_nlp_service().predict(text_content)
+            detail.ml_detection = ml_res.model_dump()
+            detail.nlp_detection = nlp_res.model_dump()
+    except Exception as e:
+        logger.warning("Could not compute real-time ML/NLP for investigation detail: %s", e)
+
+    return detail
 
 
 @router.get("/{investigation_id}/findings")
@@ -813,4 +872,157 @@ def get_suggested_questions(investigation_id: str, db: Session = Depends(get_db)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
     return {"suggested_questions": SUGGESTED_QUESTIONS, "investigation_id": investigation_id}
+
+
+# ── MailShield AI Agent — Gemini Reasoning + Sarvam 22-Language Voice Engine ─
+
+from pydantic import BaseModel as _BaseModel
+from typing import Optional as _Optional
+
+class AgentChatRequest(_BaseModel):
+    question: str
+    language_code: _Optional[str] = "en-IN"
+    language_name: _Optional[str] = None
+
+
+class AgentVoiceRequest(_BaseModel):
+    text: str
+    voice: str = "priya"
+    language: str = "en-IN"
+
+
+@router.post("/{investigation_id}/agent/chat")
+async def agent_chat(
+    investigation_id: str,
+    body: AgentChatRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Ask MailShield AI a forensic question about a specific investigation.
+    The full forensic context (risk score, findings, auth, URLs, domains) is
+    injected into the prompt so the model answers are grounded in evidence.
+    Supports multilingual answers across 22 Indian languages.
+    """
+    from app.forensic_ai.openai_agent import ask_openai
+    from app.schemas.investigation import InvestigationDetail
+
+    investigation = db.get(Investigation, investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+    if investigation.status != "COMPLETED":
+        raise HTTPException(status_code=400, detail="Analysis not yet complete. Please wait for the investigation to finish.")
+
+    # Serialise the investigation ORM model to a plain dict for the AI context
+    try:
+        inv_schema = InvestigationDetail.model_validate(investigation)
+        inv_dict = inv_schema.model_dump()
+    except Exception:
+        inv_dict = {
+            "case_id": investigation.case_id,
+            "risk_score": investigation.risk_score,
+            "classification": investigation.classification,
+            "status": investigation.status,
+        }
+
+    result = await ask_openai(
+        question=body.question,
+        investigation=inv_dict,
+        language_code=body.language_code,
+        language_name=body.language_name,
+    )
+    return result
+
+
+@router.post("/{investigation_id}/agent/voice")
+async def agent_voice(
+    investigation_id: str,
+    body: AgentVoiceRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Convert a forensic AI answer to speech using Sarvam AI TTS (bulbul:v3).
+    Supports all 22 Indian languages. Returns base64-encoded WAV audio.
+    """
+    from app.forensic_ai.sarvam_tts import synthesize_speech
+
+    investigation = db.get(Investigation, investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    result = await synthesize_speech(body.text, voice=body.voice, language=body.language)
+    return result
+
+
+@router.post("/{investigation_id}/agent/transcribe")
+async def agent_transcribe(
+    investigation_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Transcribe spoken voice query to text using Sarvam AI STT (saaras:v3).
+    Analyzes spoken audio, transcribes it, and detects the spoken language
+    across 22 Indian languages.
+    """
+    from app.forensic_ai.sarvam_tts import transcribe_speech
+
+    investigation = db.get(Investigation, investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio recording is empty.")
+
+    result = await transcribe_speech(
+        audio_bytes=audio_bytes,
+        filename=file.filename or "recording.wav",
+        content_type=file.content_type or "audio/wav",
+    )
+    return result
+
+
+@router.get("/{investigation_id}/origin-trace")
+def get_investigation_origin_trace(investigation_id: str, db: Session = Depends(get_db)):
+    """
+    SIH 26106 LAYER 3: ORIGIN TRACEABILITY ENGINE
+    Reconstructs email transmission path across Received headers, detects relay
+    anomalies (timestamp inversions, duplicate hops), isolates the EARLIEST
+    RELIABLE OBSERVABLE SENDING NODE, and computes infrastructure confidence.
+    Adheres strictly to forensic evidentiary guidelines: never claims physical attacker location.
+    """
+    from dataclasses import asdict
+    from app.forensic.origin_tracer import analyze_origin_trace
+    from app.intel.providers import get_geoip_provider
+
+    investigation = db.get(Investigation, investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    # Reconstruct hop dictionaries
+    hops_data = []
+    for h in (investigation.received_hops or []):
+        hops_data.append({
+            "hop_index": h.hop_index,
+            "raw_header": h.raw_header,
+            "from_host": h.from_host or "",
+            "by_host": h.by_host or "",
+            "with_protocol": h.with_protocol or "SMTP",
+            "ip_address": h.ip_address or "",
+            "timestamp_raw": h.timestamp_raw or "",
+            "timestamp_parsed": h.timestamp_parsed.isoformat() if h.timestamp_parsed else None,
+        })
+
+    # Collect GeoIP lookup for public IPs
+    provider = get_geoip_provider()
+    geo_results = []
+    for ip_rec in (investigation.ip_addresses or []):
+        geo = provider.lookup_geo(ip_rec.ip_address)
+        geo_results.append({
+            "ip_address": ip_rec.ip_address,
+            "geo": geo,
+        })
+
+    trace_result = analyze_origin_trace(hops_data, geo_results)
+    return asdict(trace_result)
 

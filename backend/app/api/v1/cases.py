@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_caller
 from app.database.session import get_db
 from app.models.investigation import AuditLog, Investigation
+from app.models.user import User
+from utils.auth_deps import get_optional_current_user
 
 logger = logging.getLogger("forensic_platform")
 router = APIRouter(prefix="/cases", tags=["cases"])
@@ -32,8 +34,14 @@ def list_cases(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     q = db.query(Investigation)
+    if current_user:
+        q = q.filter(Investigation.user_id == current_user.id)
+    else:
+        q = q.filter(Investigation.user_id.is_(None))
+
     if status:
         q = q.filter(Investigation.case_status == status.upper())
     rows = q.order_by(Investigation.created_at.desc()).offset(offset).limit(min(limit, 200)).all()
@@ -41,10 +49,18 @@ def list_cases(
 
 
 @router.get("/{investigation_id}")
-def get_case(investigation_id: str, db: Session = Depends(get_db)):
+def get_case(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     inv = db.get(Investigation, investigation_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Case not found")
+
+    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to view this case.")
+
     return _case_summary(inv)
 
 
@@ -54,10 +70,15 @@ def update_case(
     body: CasePatchRequest,
     db: Session = Depends(get_db),
     caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     inv = db.get(Investigation, investigation_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Case not found")
+
+    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to modify this case.")
+
 
     actor = caller or "unauthenticated-analyst"
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link2, ShieldCheck, Hash, Loader2, CheckCircle2, XCircle, RefreshCw, DatabaseZap } from "lucide-react";
 import { listBlockchainBlocks, verifyBlockchain } from "../api/client";
 import type { BlockchainBlock, BlockchainVerifyResult } from "../types/investigation";
+import BlockchainBlockChainVisualizer from "../components/BlockchainBlockChainVisualizer";
 
 function formatTs(iso: string) {
   try {
@@ -46,11 +47,11 @@ export default function IntegrityLedgerPage() {
             <Link2 className="h-5 w-5 text-purple-signal" strokeWidth={1.75} />
             <h1 className="text-xl font-bold tracking-tight text-white">Integrity Ledger</h1>
             <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-purple-signal/15 text-purple-400 border border-purple-signal/30 tracking-widest">
-              DEMO LOCAL LEDGER
+              HYPERLEDGER FABRIC & SHA-256 LEDGER
             </span>
           </div>
           <p className="text-sm text-lab-400">
-            Tamper-evident SHA-256 hash chain for all forensic evidence.
+            Immutable, tamper-evident SHA-256 cryptographic chain for all MailShield forensic evidence.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -107,15 +108,18 @@ export default function IntegrityLedgerPage() {
           <div className="flex items-center justify-center gap-1.5 mb-1">
             <DatabaseZap className="h-4 w-4 text-phosphor-400" />
           </div>
-          <div className="font-data text-sm text-phosphor-400">LOCAL · SQLite</div>
+          <div className="font-data text-sm text-phosphor-400">HYPERLEDGER FABRIC + DB</div>
           <div className="text-[10px] text-lab-500 evidence-tag mt-1">LEDGER BACKEND</div>
         </div>
       </div>
 
+      {/* Interactive Tamper-Evident Proof Visualizer */}
+      <BlockchainBlockChainVisualizer className="mb-6" />
+
       {/* Block chain visualization */}
       <div className="mb-4 text-xs text-lab-500 flex items-center gap-2">
         <div className="h-px flex-1 bg-white/10" />
-        LEDGER CHAIN — {blocks.length} blocks
+        LIVE IMMUTABLE LEDGER CHAIN — {blocks.length} registered blocks
         <div className="h-px flex-1 bg-white/10" />
       </div>
 

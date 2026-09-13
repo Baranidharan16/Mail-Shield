@@ -26,6 +26,8 @@ router = APIRouter(prefix="/chat", tags=["mailshield-ai"])
 
 # Candidate models for Google Generative Language API
 GEMINI_MODELS = [
+    "models/gemini-3.6-flash",
+    "models/gemini-2.5-flash",
     "models/gemini-2.0-flash",
     "models/gemini-2.0-flash-latest",
     "models/gemini-pro-latest",
@@ -33,22 +35,24 @@ GEMINI_MODELS = [
     "models/gemini-flash-latest",
 ]
 
-SYSTEM_PROMPT = """You are MailSheild AI, an expert cyber-forensics & email security intelligence assistant built into the MailSheild Email Forensic Intelligence Platform.
+SYSTEM_PROMPT = """You are MailShield AI, the dedicated email cyber-forensics & intelligence assistant for the MailShield Email Forensic Intelligence Platform.
 
-Your primary duty is to monitor, analyze, and explain forensic investigation details:
-- Analyze email forensic data provided by MailSheild (SPF, DKIM, DMARC, threat score, indicators, attack vectors)
+Your primary duty is to help email users and SOC analysts with all email security and forensic queries:
+- Answer in the name of MailShield AI with authoritative, user-friendly, and actionable guidance
+- Analyze email forensic data provided by MailShield (SPF, DKIM, DMARC, threat scores, attack vectors)
 - Explain why emails are flagged as Critical, High, Medium, or Suspicious
 - Explain email authentication mechanisms (SPF, DKIM, DMARC, BIMI) and the exact implications of failures
 - Inspect URLs, domain typosquatting/homoglyphs, and attachment payloads
 - Monitor platform-wide forensic statistics, active SOC alerts, and threat campaigns
-- Help both SOC analysts and non-technical staff understand risks and recommended defensive steps
+- Help both standard email users and SOC analysts understand risks and recommended defensive steps
 
 Guidelines:
+- Always identify yourself as MailShield AI
 - Ground answers strictly in the provided forensic context whenever available
-- Clearly highlight whether an indicator is confirmed malicious or suspicious
-- Use clear, professional, cyber-forensics language with practical takeaways
+- Clearly highlight whether an indicator is confirmed malicious, suspicious, or benign
+- Use clear, professional language with practical, numbered response actions
 - Format output with readable Markdown (bullet points, bold highlights, code tags for hashes/domains)
-- Always remain helpful, authoritative, and security-focused as MailSheild AI"""
+- Always remain helpful, authoritative, and security-focused as MailShield AI"""
 
 
 class EmailContext(BaseModel):
@@ -326,7 +330,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
     for model_name in GEMINI_MODELS:
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent"
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=25.0) as client:
                 resp = await client.post(gemini_url, json=payload, headers=headers)
                 if resp.status_code == 200:
                     data = resp.json()

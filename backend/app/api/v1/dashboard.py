@@ -11,27 +11,46 @@ from sqlalchemy.orm import Session
 
 from app.database.session import get_db
 from app.models.investigation import Alert, Campaign, Investigation
+from app.models.user import User
+from utils.auth_deps import get_optional_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/stats")
-def get_dashboard_stats(db: Session = Depends(get_db)):
-    total = db.query(Investigation).count()
-    critical = db.query(Investigation).filter(Investigation.classification == "CRITICAL").count()
-    high = db.query(Investigation).filter(Investigation.classification == "HIGH").count()
-    medium = db.query(Investigation).filter(Investigation.classification == "MEDIUM").count()
-    low = db.query(Investigation).filter(Investigation.classification == "LOW").count()
-    processing = db.query(Investigation).filter(
+def get_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    base_q = db.query(Investigation)
+    if current_user:
+        base_q = base_q.filter(Investigation.user_id == current_user.id)
+    else:
+        base_q = base_q.filter(Investigation.user_id.is_(None))
+
+    total = base_q.count()
+    critical = base_q.filter(Investigation.classification == "CRITICAL").count()
+    high = base_q.filter(Investigation.classification == "HIGH").count()
+    medium = base_q.filter(Investigation.classification == "MEDIUM").count()
+    low = base_q.filter(Investigation.classification == "LOW").count()
+    processing = base_q.filter(
         Investigation.status.in_(["QUEUED", "PROCESSING"])
     ).count()
-    completed = db.query(Investigation).filter(Investigation.status == "COMPLETED").count()
-    failed = db.query(Investigation).filter(Investigation.status == "FAILED").count()
+    completed = base_q.filter(Investigation.status == "COMPLETED").count()
+    failed = base_q.filter(Investigation.status == "FAILED").count()
     campaigns = db.query(Campaign).count()
-    active_alerts = db.query(Alert).filter(Alert.acknowledged == False).count()  # noqa: E712
+
+    alerts_q = db.query(Alert).filter(Alert.acknowledged == False)  # noqa: E712
+    if current_user:
+        alerts_q = alerts_q.join(Investigation).filter(Investigation.user_id == current_user.id)
+    active_alerts = alerts_q.count()
 
     return {
         "total_investigations": total,
+        "phishing_detected": critical + high,
+        "safe_emails": low,
+        "high_risk_emails": critical + high,
+        "critical_incidents": critical,
         "critical": critical,
         "high": high,
         "medium": medium,
@@ -45,15 +64,20 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/threat_trend")
-def get_threat_trend(days: int = 7, db: Session = Depends(get_db)):
+def get_threat_trend(
+    days: int = 7,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
     """Returns daily classification breakdown for the last N days."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    rows = (
-        db.query(Investigation)
-        .filter(Investigation.created_at >= since, Investigation.status == "COMPLETED")
-        .order_by(Investigation.created_at.asc())
-        .all()
-    )
+    q = db.query(Investigation).filter(Investigation.created_at >= since, Investigation.status == "COMPLETED")
+    if current_user:
+        q = q.filter(Investigation.user_id == current_user.id)
+    else:
+        q = q.filter(Investigation.user_id.is_(None))
+
+    rows = q.order_by(Investigation.created_at.asc()).all()
     # Bucket by date
     from collections import defaultdict
     buckets: dict = defaultdict(lambda: {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "total": 0})

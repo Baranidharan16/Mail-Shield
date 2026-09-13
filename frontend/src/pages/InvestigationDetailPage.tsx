@@ -9,6 +9,7 @@ import {
 import {
   getInvestigation, getReport, getAttackGraph, getRecommendations,
   getChainOfCustody, getTimeline, getGeoIntelligence, getCampaign,
+  getOriginTrace, type OriginTraceResult,
 } from "../api/client";
 import type {
   InvestigationDetail, AttackGraphData, Recommendation,
@@ -25,10 +26,14 @@ import RecommendedResponsePanel from "../components/RecommendedResponsePanel";
 import SimilarCasesPanel from "../components/SimilarCasesPanel";
 import ThreatIntelPanel from "../components/ThreatIntelPanel";
 import AttackClassification from "../components/AttackClassification";
-import AIAgentPlaceholder from "../components/AIAgentPlaceholder";
+import AIDetectionAnalysis from "../components/AIDetectionAnalysis";
 import SOCAlertPanel from "../components/SOCAlertPanel";
 import SOCHelpline from "../components/SOCHelpline";
 import ForensicEvidenceBreakdown from "../components/ForensicEvidenceBreakdown";
+import { InteractiveGeoMap } from "../components/InteractiveGeoMap";
+import { EarliestObservableNodePanel } from "../components/EarliestObservableNodePanel";
+import { SecurityDecisionTree } from "../components/SecurityDecisionTree";
+
 
 function Section({
   id, title, icon: Icon, children, badge, defaultOpen = true,
@@ -90,6 +95,7 @@ export default function InvestigationDetailPage() {
   const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [geo, setGeo] = useState<GeoResponse | null>(null);
   const [campaign, setCampaign] = useState<CampaignResponse | null>(null);
+  const [originTrace, setOriginTrace] = useState<OriginTraceResult | null>(null);
 
   function scrollToSection(sectionId: string) {
     const el = document.getElementById(sectionId);
@@ -114,8 +120,10 @@ export default function InvestigationDetailPage() {
       getTimeline(id).then(setTimeline),
       getGeoIntelligence(id).then(setGeo),
       getCampaign(id).then(setCampaign),
+      getOriginTrace(id).then(setOriginTrace),
     ]).finally(() => setGraphLoading(false));
   }, [id, data?.status]);
+
 
   async function downloadReport() {
     if (!id) return;
@@ -269,6 +277,12 @@ export default function InvestigationDetailPage() {
         </div>
       )}
 
+      {/* ── AI DETECTION ANALYSIS (Real Keras ML + NLP Models) ─────────────── */}
+      <AIDetectionAnalysis
+        mlDetection={data.ml_detection}
+        nlpDetection={data.nlp_detection}
+      />
+
       <div className="space-y-4">
         {/* 1. Attack Relationship Graph */}
         <div id="attack-graph-section" className="scroll-mt-6">
@@ -402,7 +416,22 @@ export default function InvestigationDetailPage() {
           </Section>
         )}
 
+        {/* SIH Layer 3: Earliest Reliable Observable Sending Node */}
+        {originTrace && (
+          <div id="origin-node-section" className="scroll-mt-6">
+            <EarliestObservableNodePanel traceResult={originTrace} />
+          </div>
+        )}
+
+        {/* Interactive Geolocation & Relay Path */}
+        {originTrace && (
+          <div id="geomap-section" className="scroll-mt-6">
+            <InteractiveGeoMap traceResult={originTrace} />
+          </div>
+        )}
+
         {/* 8. Threat Intel */}
+
         <Section title="Threat Intelligence & IOCs" icon={MapPin}>
           <ThreatIntelPanel geo={geo} inv={data} />
         </Section>
@@ -576,6 +605,15 @@ export default function InvestigationDetailPage() {
           </Section>
         )}
 
+        {/* Interactive Incident Response Decision Tree */}
+        <div id="decision-tree-section" className="scroll-mt-6">
+          <SecurityDecisionTree
+            investigationId={id ?? ""}
+            caseId={data.case_id}
+            threatClass={data.classification ?? "THREAT"}
+          />
+        </div>
+
         {/* 13. Recommended Response */}
         <Section title="Recommended Response Actions" icon={ListChecks}>
           <RecommendedResponsePanel recommendations={recommendations} />
@@ -628,9 +666,6 @@ export default function InvestigationDetailPage() {
           </div>
         </Section>
       </div>
-
-      {/* AI Agent floating widget */}
-      <AIAgentPlaceholder />
     </div>
   );
 }

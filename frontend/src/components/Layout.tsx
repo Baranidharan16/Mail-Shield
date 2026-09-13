@@ -1,13 +1,17 @@
 import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
-  LayoutGrid, UploadCloud, History, Archive, Link2, FileText,
-  Settings, ChevronRight, Sparkles, Radio, Shield, AlertTriangle,
-  Brain, Search, Bell, Menu, X,
+  LayoutGrid, UploadCloud, History, Archive, Link2,
+  Settings, ChevronRight, Sparkles, AlertTriangle,
+  Brain, Search, Bell, Menu, X, Network, Activity, Lock,
+  UserCheck, LogOut,
 } from "lucide-react";
 import MorphingSvgBackground from "./MorphingSvgBackground";
 import MailShieldChatbot from "./MailShieldChatbot";
+import AIEngineStatus from "./AIEngineStatus";
 import { useChat } from "../context/ChatContext";
+import { useAuth } from "../context/AuthContext";
+
 
 const NAV_ITEMS = [
   {
@@ -15,12 +19,13 @@ const NAV_ITEMS = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutGrid, end: true },
       { to: "/alerts", label: "SOC Threat Center", icon: AlertTriangle },
+      { to: "/campaigns", label: "Campaigns & Clusters", icon: Network },
     ],
   },
   {
     group: "INVESTIGATION",
     items: [
-      { to: "/upload", label: "Email Analysis", icon: UploadCloud },
+      { to: "/upload", label: "Email Analysis & Demos", icon: UploadCloud },
       { to: "/history", label: "Case History", icon: History },
     ],
   },
@@ -29,16 +34,20 @@ const NAV_ITEMS = [
     items: [
       { to: "/evidence-vault", label: "Evidence Vault", icon: Archive },
       { to: "/ledger", label: "Integrity Ledger", icon: Link2 },
+      { to: "/privacy", label: "Privacy & Compliance", icon: Lock },
     ],
   },
   {
-    group: "SYSTEM",
+    group: "SYSTEM & TELEMETRY",
     items: [
-      { to: "/history", label: "Reports", icon: FileText },
+      { to: "/system/performance", label: "Pipeline SLA", icon: Activity },
+      { to: "/profile", label: "Analyst Profile", icon: UserCheck },
       { to: "/settings", label: "Settings", icon: Settings },
     ],
   },
+
 ];
+
 
 const morphShieldPaths = [
   "M 12 2 Q 18 1 20 5 Q 22 1 28 2 Q 29 14 20 26 Q 11 14 12 2 Z",
@@ -48,10 +57,17 @@ const morphShieldPaths = [
 
 export default function Layout() {
   const { setIsOpen } = useChat();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [shieldState, setShieldState] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [backendAlive, setBackendAlive] = useState(true);
+
+  async function handleLogout() {
+    await logout();
+    navigate("/login", { replace: true });
+  }
+
 
   useEffect(() => {
     const timer = setInterval(() => setShieldState((s) => (s + 1) % 3), 2800);
@@ -142,10 +158,35 @@ export default function Layout() {
             <button
               onClick={() => navigate("/alerts")}
               className="relative p-2 rounded-lg text-lab-400 hover:text-lab-100 hover:bg-white/5 transition-colors"
+              title="SOC Alerts"
             >
               <Bell className="h-4 w-4" />
               <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-crimson-signal animate-critical" />
             </button>
+
+            {/* User Profile & Greeting */}
+            <div className="flex items-center gap-2 pl-2 border-l border-white/[0.08]">
+              <button
+                onClick={() => navigate("/profile")}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-xs transition-colors group cursor-pointer"
+                title="View Analyst Profile"
+              >
+                <div className="w-5 h-5 rounded-full bg-phosphor-500/20 text-phosphor-300 border border-phosphor-500/40 flex items-center justify-center font-bold text-[10px]">
+                  {(user?.name || "U")[0].toUpperCase()}
+                </div>
+                <span className="hidden md:inline text-lab-300 group-hover:text-white font-medium">
+                  Welcome back, <strong className="text-phosphor-400 font-semibold">{user?.name ? user.name.split(" ")[0] : "User"}</strong>
+                </span>
+              </button>
+
+              <button
+                onClick={handleLogout}
+                className="p-1.5 rounded-lg text-lab-400 hover:text-crimson-glow hover:bg-crimson-signal/10 transition-colors cursor-pointer"
+                title="Sign Out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -231,42 +272,24 @@ export default function Layout() {
             <button
               onClick={() => { setIsOpen(true); setSidebarOpen(false); }}
               className="w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold
-                bg-gradient-to-r from-purple-500/12 via-phosphor-500/8 to-purple-500/12
-                border border-phosphor-500/25 hover:border-phosphor-400/50
+                bg-gradient-to-r from-purple-500/15 via-phosphor-500/10 to-purple-500/15
+                border border-phosphor-500/30 hover:border-phosphor-400/60
                 text-lab-200 hover:text-phosphor-300 transition-all duration-250 group"
             >
               <span className="flex items-center gap-2">
                 <Brain className="h-4 w-4 text-phosphor-400 group-hover:text-phosphor-300 transition-colors" />
-                <span>Forensic AI Chat</span>
+                <span>MailShield AI Sentinel</span>
               </span>
-              <span className="text-[8px] px-1.5 py-0.5 rounded bg-phosphor-500/20 text-phosphor-300 border border-phosphor-500/35 font-mono tracking-widest">
-                GEMINI
+              <span className="text-[8px] px-1.5 py-0.5 rounded bg-phosphor-500/20 text-phosphor-300 border border-phosphor-500/35 font-mono tracking-wider">
+                LIVE
               </span>
             </button>
           </div>
 
-          {/* System Status footer */}
-          <div className="px-3 pb-4 pt-2 border-t border-white/[0.06] mt-1">
-            <div className="glass-card px-3.5 py-3 rounded-xl !bg-black/25">
-              <div className="flex items-center gap-2 mb-1.5">
-                <Radio className="h-3 w-3 text-phosphor-500 animate-pulse shrink-0" />
-                <span className="text-[10px] text-lab-300 evidence-tag font-semibold tracking-wider">SYSTEM STATUS</span>
-              </div>
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className={backendAlive ? "live-dot" : "h-1.5 w-1.5 rounded-full bg-crimson-signal shrink-0"} />
-                <span className={
-                  "text-[10px] evidence-tag font-bold " +
-                  (backendAlive ? "text-phosphor-400" : "text-crimson-glow")
-                }>
-                  {backendAlive ? "ANALYSIS ENGINE ONLINE" : "BACKEND OFFLINE"}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Shield className="h-2.5 w-2.5 text-phosphor-500 shrink-0" />
-                <span className="text-[9.5px] text-lab-500 evidence-tag">Protection Active</span>
-              </div>
-              <div className="text-[9px] text-lab-600 mt-1.5 font-mono">SIH 2026 · PS 26106 · AICTE CSC</div>
-            </div>
+          {/* AI Engine Status & Telemetry footer */}
+          <div className="px-2.5 pb-4 pt-1 border-t border-white/[0.06] mt-1 space-y-2">
+            <AIEngineStatus compact />
+            <div className="text-[9px] text-lab-600 px-1 font-mono text-center">SIH 2026 · PS 26106 · AICTE CSC</div>
           </div>
         </aside>
 

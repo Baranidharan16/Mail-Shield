@@ -23,12 +23,30 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app, requests_per_minute: int | None = None):
         super().__init__(app)
-        self.limit = requests_per_minute or settings.RATE_LIMIT_PER_MINUTE
+        self.limit = requests_per_minute or 600
         self.window_seconds = 60
         self._hits: Dict[str, Deque[float]] = defaultdict(deque)
 
+    # Paths that are exempt from rate limiting (read-only polling endpoints
+    # and developer tooling that the UI calls on every render cycle).
+    _EXEMPT_PREFIXES = (
+        "/api/v1/health",
+        "/api/v1/dashboard",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/assets",
+    )
+
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in ("/api/v1/health", "/docs", "/openapi.json", "/redoc"):
+        path = request.url.path
+        # Exempt read-only polling paths and dev tooling entirely
+        if any(path.startswith(prefix) for prefix in self._EXEMPT_PREFIXES):
+            return await call_next(request)
+        # Also exempt all safe GET requests against investigation/case sub-resources
+        if request.method == "GET" and path.startswith("/api/v1/investigations"):
+            return await call_next(request)
+        if request.method == "GET" and path.startswith("/api/v1/cases"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"

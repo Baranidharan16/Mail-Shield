@@ -175,6 +175,19 @@ export interface InvestigationDetail {
   findings: FindingOut[];
   indicators: IndicatorOut[];
   risk_score_breakdown: RiskScoreOut | null;
+  ml_detection?: {
+    prediction: string;
+    phishing_probability: number;
+    confidence: number;
+  };
+  nlp_detection?: {
+    urgency: number;
+    credential_request: number;
+    financial_manipulation: number;
+    impersonation: number;
+    threat_language: number;
+    suspicious_action: number;
+  };
 }
 
 // Dashboard
@@ -480,3 +493,68 @@ export interface ForensicAIChatResponse {
   suggested_followups: string[];
   disclaimer: string;
 }
+
+export interface MailShieldAnalysisResponse {
+  analysis_id: string;
+  email: {
+    subject: string;
+    sender: string;
+    sender_domain: string;
+    reply_to: string;
+    reply_to_domain: string;
+    date?: string;
+    message_id?: string;
+  };
+  ml: {
+    prediction: string;
+    phishing_probability: number;
+    confidence: number;
+  };
+  nlp: {
+    urgency: number;
+    credential_request: number;
+    financial_manipulation: number;
+    impersonation: number;
+    threat_language: number;
+    suspicious_action: number;
+  };
+  forensics: {
+    spf: string;
+    dkim: string;
+    dmarc: string;
+    reply_to_mismatch: boolean;
+    suspicious_url_count: number;
+    domains: string[];
+    urls?: string[];
+    received_hop_count?: number;
+    attachment_count?: number;
+    attachments?: string[];
+    suspicious_url_details?: Array<{ url: string; domain: string; reasons: string[] }>;
+  };
+  risk: {
+    score: number;
+    level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+    contributing_factors: string[];
+  };
+  ai_reasoning: {
+    summary: string;
+    why_detected: string[];
+    key_indicators: string[];
+    recommended_actions: string[];
+    confidence_note: string;
+  };
+}
+
+export interface ModelStatusResponse {
+  ml_model_loaded: boolean;
+  nlp_model_loaded: boolean;
+  forensic_engine_active?: boolean;
+  gemini_status?: string;
+  sarvam_voice_status?: string;
+  ollama_status?: string;
+  ml_model_path: string;
+  nlp_model_path: string;
+  reasoning_provider: string;
+  gemini_configured: boolean;
+}
+

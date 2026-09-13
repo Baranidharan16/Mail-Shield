@@ -53,6 +53,7 @@ class Investigation(Base):
 
     error_message = Column(Text, nullable=True)
 
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_by = Column(String(128), nullable=True)  # reserved for Phase-2 auth
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -81,6 +82,7 @@ class Investigation(Base):
     threat_intel_summary = relationship("ThreatIntelSummary", back_populates="investigation", uselist=False, cascade="all, delete-orphan")
     attack_graph = relationship("AttackGraph", back_populates="investigation", uselist=False, cascade="all, delete-orphan")
     attribution_assessment = relationship("AttributionAssessment", back_populates="investigation", uselist=False, cascade="all, delete-orphan")
+    user = relationship("User", back_populates="investigations")
 
 
 class EmailMetadata(Base):

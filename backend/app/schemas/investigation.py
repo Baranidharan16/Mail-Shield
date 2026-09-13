@@ -194,6 +194,8 @@ class InvestigationDetail(BaseModel):
     findings: List[FindingOut] = []
     indicators: List[IndicatorOut] = []
     risk_score_breakdown: Optional[RiskScoreOut] = None
+    ml_detection: Optional[Dict[str, Any]] = None
+    nlp_detection: Optional[Dict[str, Any]] = None
 
 
 class HealthOut(BaseModel):

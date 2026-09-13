@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.core.rate_limit import RateLimitMiddleware
 from app.database.session import init_db
-from app.api.v1 import investigations, health, alerts, blockchain, dashboard, timeline, cases, chat
+from app.api.v1 import investigations, health, alerts, blockchain, dashboard, timeline, cases, chat, sse, system
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,6 +48,8 @@ app.include_router(dashboard.router, prefix=settings.API_V1_PREFIX)
 app.include_router(timeline.router, prefix=settings.API_V1_PREFIX)
 app.include_router(cases.router, prefix=settings.API_V1_PREFIX)
 app.include_router(chat.router, prefix=settings.API_V1_PREFIX)
+app.include_router(sse.router, prefix=settings.API_V1_PREFIX)
+app.include_router(system.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.on_event("startup")

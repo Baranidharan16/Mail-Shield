@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     TRUSTED_ORG_DOMAINS: List[str] = []
 
     # --- Rate limiting -----------------------------------------------------
-    RATE_LIMIT_PER_MINUTE: int = 30
+    RATE_LIMIT_PER_MINUTE: int = 600  # 10 req/s — safe for local/demo use
 
     # --- Simple API-key authentication -------------------------------------
     # Phase 1 keeps auth simple per the project brief ("keep simple in Phase 1
@@ -73,8 +73,16 @@ class Settings(BaseSettings):
     # Keep empty unless a real API key is configured in the environment.
     GEMINI_API_KEY: str = ""
 
+    # --- Sarvam AI API key (for MailShield AI Assistant — voice STT & TTS) ---
+    SARVAM_API_KEY: str = ""
+
     # --- Phase 2: demo mode -------------------------------------------------
     DEMO_MODE_ENABLED: bool = True
+
+    # --- JWT Authentication ---------------------------------------------
+    JWT_SECRET_KEY: str = "mailshield-insecure-dev-secret-key-change-in-production-2026"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     # --- Scoring engine config file --------------------------------------
     SCORING_CONFIG_PATH: str = "app/forensic/scoring_weights.json"

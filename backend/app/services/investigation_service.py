@@ -60,6 +60,7 @@ def create_investigation(
     original_filename: str,
     mime_type: Optional[str],
     created_by: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Investigation:
     """Validates + stores the uploaded evidence and creates a QUEUED investigation row.
     Does NOT run analysis - that happens in `run_analysis` (typically via a
@@ -83,6 +84,7 @@ def create_investigation(
         mime_type=mime_type or "message/rfc822",
         status="QUEUED",
         created_by=created_by,
+        user_id=user_id,
     )
     db.add(investigation)
     db.commit()

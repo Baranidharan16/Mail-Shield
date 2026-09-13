@@ -1,22 +1,42 @@
-aiosqlite==0.22.1
-anyio==4.14.2
-email-validator==2.3.0
+# Core API Framework
 fastapi==0.141.1
-fpdf2>=2.7.0
-httpx==0.28.1
-joblib>=1.3.0
-networkx>=3.1
-numpy>=1.24.0
-psycopg2-binary==2.9.12
+uvicorn==0.52.4
+starlette==1.6.0
+python-multipart==0.0.32
 pydantic==2.13.4
 pydantic-settings==2.15.0
 pydantic_core==2.46.4
+anyio==4.14.2
+httpx==0.28.1
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Deep Learning & ML Inference (MailShield Models)
+tensorflow>=2.18.0
+keras>=3.5.0
+numpy>=1.26.0
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# AI Reasoning Layer
+google-genai>=1.0.0
+
+# Email Forensic & Network Analysis
+tldextract==5.3.2
+email-validator==2.3.0
+dnspython>=2.6.0
+networkx>=3.1
+
+# Storage & Reporting
+SQLAlchemy==2.0.52
+aiosqlite==0.22.1
+psycopg2-binary==2.9.12
+fpdf2>=2.7.0
+
+# Testing
 pytest==9.1.1
 pytest-asyncio==1.4.0
-python-multipart==0.0.32
-requests>=2.31.0
-scikit-learn>=1.3.0
-SQLAlchemy==2.0.52
-starlette==1.6.0
-tldextract==5.3.2
-uvicorn==0.52.4
+
+# Authentication & Password Security
+argon2-cffi>=23.1.0
+pyjwt>=2.8.0

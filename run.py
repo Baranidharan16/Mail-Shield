@@ -19,13 +19,13 @@ def main():
         subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND), shell=True, check=True)
     
     print("\n=======================================================")
-    print(" [MAILSHEILD] SOC & Email Forensics Platform")
+    print(" [MAILSHIELD] SOC & Email Forensics Platform")
     print(" Unified Server: http://localhost:8000")
     print(" API Docs:       http://localhost:8000/docs")
     print("=======================================================\n")
 
     subprocess.run([
-        PYTHON_EXE, "-m", "uvicorn", "app.main:app",
+        PYTHON_EXE, "-m", "uvicorn", "main:app",
         "--host", "127.0.0.1", "--port", "8000"
     ], cwd=str(BACKEND))
 
