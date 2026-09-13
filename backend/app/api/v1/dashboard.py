@@ -91,9 +91,19 @@ def get_threat_trend(
 
 
 @router.get("/recent_alerts")
-def get_recent_alerts(limit: int = 10, db: Session = Depends(get_db)):
+def get_recent_alerts(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    alerts_q = db.query(Alert).join(Investigation, Alert.investigation_id == Investigation.id)
+    if current_user:
+        alerts_q = alerts_q.filter(Investigation.user_id == current_user.id)
+    else:
+        alerts_q = alerts_q.filter(Investigation.user_id.is_(None))
+
     alerts = (
-        db.query(Alert)
+        alerts_q
         .order_by(Alert.created_at.desc())
         .limit(min(limit, 50))
         .all()
