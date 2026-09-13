@@ -15,6 +15,7 @@ from services.sarvam_service import is_sarvam_configured
 router = APIRouter(tags=["Health & Status"])
 
 
+@router.get("/health", response_model=HealthResponse)
 @router.get("/api/health", response_model=HealthResponse)
 @router.get("/api/v1/health", response_model=HealthResponse)
 async def health_check():

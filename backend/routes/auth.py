@@ -26,7 +26,7 @@ from utils.auth_deps import get_current_user, get_optional_current_user
 
 logger = logging.getLogger("mailshield.routes.auth")
 
-router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+router = APIRouter(tags=["Authentication"])
 
 
 def _build_user_profile(user: User, db: Session) -> UserPublicProfile:
@@ -53,7 +53,9 @@ def _build_user_profile(user: User, db: Session) -> UserPublicProfile:
     )
 
 
-@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/api/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/api/v1/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     """Registers a new user account with Argon2 password hashing."""
     # Check if user with this email already exists
@@ -61,7 +63,7 @@ async def register_user(payload: UserRegisterRequest, db: Session = Depends(get_
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An account with this email address already exists.",
+            detail="An account with this email address already exists. Please log in.",
         )
 
     # Hash password with Argon2
@@ -89,7 +91,9 @@ async def register_user(payload: UserRegisterRequest, db: Session = Depends(get_
     )
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post("/api/auth/login", response_model=AuthResponse)
+@router.post("/api/v1/auth/login", response_model=AuthResponse)
+@router.post("/auth/login", response_model=AuthResponse)
 async def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     """Authenticates a user with email and password and returns a JWT access token."""
     email_clean = payload.email.lower().strip()
@@ -126,14 +130,18 @@ async def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/logout", response_model=MessageResponse)
+@router.post("/api/auth/logout", response_model=MessageResponse)
+@router.post("/api/v1/auth/logout", response_model=MessageResponse)
+@router.post("/auth/logout", response_model=MessageResponse)
 async def logout_user(current_user: User = Depends(get_current_user)):
     """Logs out the current user session."""
     logger.info("User logged out: %s", current_user.email)
     return MessageResponse(message="Successfully logged out.")
 
 
-@router.get("/me", response_model=UserPublicProfile)
+@router.get("/api/auth/me", response_model=UserPublicProfile)
+@router.get("/api/v1/auth/me", response_model=UserPublicProfile)
+@router.get("/auth/me", response_model=UserPublicProfile)
 async def get_current_user_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -142,7 +150,9 @@ async def get_current_user_profile(
     return _build_user_profile(current_user, db)
 
 
-@router.get("/status", response_model=AuthStatusResponse)
+@router.get("/api/auth/status", response_model=AuthStatusResponse)
+@router.get("/api/v1/auth/status", response_model=AuthStatusResponse)
+@router.get("/auth/status", response_model=AuthStatusResponse)
 async def get_auth_status(
     user: User | None = Depends(get_optional_current_user),
     db: Session = Depends(get_db),

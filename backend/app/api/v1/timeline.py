@@ -9,16 +9,25 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
-from app.models.investigation import AuditLog, Investigation
+from typing import Optional
+from app.models.user import User
+from utils.auth_deps import get_optional_current_user
 
 router = APIRouter(prefix="/investigations", tags=["timeline"])
 
 
 @router.get("/{investigation_id}/timeline")
-def get_timeline(investigation_id: str, db: Session = Depends(get_db)):
+def get_timeline(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     inv = db.get(Investigation, investigation_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Investigation not found")
+
+    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to view this timeline.")
 
     events = []
 

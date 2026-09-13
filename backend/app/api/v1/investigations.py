@@ -71,6 +71,16 @@ async def create_investigation(
     )
 
 
+def _check_investigation_access(investigation: Investigation, current_user: Optional[User]) -> None:
+    """Strict user isolation: if an investigation is owned by a user, only that user may access it."""
+    if investigation.user_id:
+        if not current_user or current_user.id != investigation.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You do not have permission to access this investigation.",
+            )
+
+
 @router.post("/{investigation_id}/analyze", response_model=InvestigationCreateResponse)
 async def trigger_analyze(
     investigation_id: str,
@@ -84,8 +94,7 @@ async def trigger_analyze(
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
 
-    if investigation.user_id and (not current_user or current_user.id != investigation.user_id):
-        raise HTTPException(status_code=403, detail="Forbidden: Access denied to this investigation.")
+    _check_investigation_access(investigation, current_user)
 
     from pathlib import Path
     storage_path = Path(settings.UPLOAD_STORAGE_DIR).resolve() / investigation.filename
@@ -139,13 +148,7 @@ def get_investigation(
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
 
-    # Strict user isolation check: User A cannot view User B's investigations
-    if investigation.user_id:
-        if not current_user or current_user.id != investigation.user_id:
-            raise HTTPException(
-                status_code=403,
-                detail="Forbidden: You do not have permission to view this investigation.",
-            )
+    _check_investigation_access(investigation, current_user)
 
     detail = InvestigationDetail.model_validate(investigation)
 
@@ -176,46 +179,74 @@ def get_investigation(
 
 
 @router.get("/{investigation_id}/findings")
-def get_findings(investigation_id: str, db: Session = Depends(get_db), caller: str | None = Depends(get_current_caller)):
+def get_findings(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     return investigation.findings
 
 
 @router.get("/{investigation_id}/indicators")
-def get_indicators(investigation_id: str, db: Session = Depends(get_db), caller: str | None = Depends(get_current_caller)):
+def get_indicators(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     return investigation.indicators
 
 
 @router.get("/{investigation_id}/report")
-def get_report(investigation_id: str, db: Session = Depends(get_db), caller: str | None = Depends(get_current_caller)):
+def get_report(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if not investigation.report:
         raise HTTPException(status_code=409, detail=f"Report not yet available (status={investigation.status})")
     return investigation.report.report_json
 
 
 @router.get("/{investigation_id}/graph")
-def get_attack_graph(investigation_id: str, db: Session = Depends(get_db)):
+def get_attack_graph(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if not investigation.attack_graph:
         raise HTTPException(status_code=409, detail=f"Graph not yet available (status={investigation.status})")
     return investigation.attack_graph.graph_json
 
 
 @router.get("/{investigation_id}/campaign")
-def get_campaign(investigation_id: str, db: Session = Depends(get_db)):
+def get_campaign(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if not investigation.campaign_id:
         return {"campaign": None, "message": "No campaign relationship established for this investigation."}
     from app.models.investigation import Campaign
@@ -232,10 +263,15 @@ def get_campaign(investigation_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{investigation_id}/attribution")
-def get_attribution(investigation_id: str, db: Session = Depends(get_db)):
+def get_attribution(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if not investigation.attribution_assessment:
         raise HTTPException(status_code=409, detail=f"Attribution not yet available (status={investigation.status})")
     a = investigation.attribution_assessment
@@ -248,10 +284,15 @@ def get_attribution(investigation_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{investigation_id}/recommendations")
-def get_recommendations(investigation_id: str, db: Session = Depends(get_db)):
+def get_recommendations(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     from app.models.investigation import ResponseRecommendation
     recs = db.query(ResponseRecommendation).filter_by(investigation_id=investigation_id).all()
     return [
@@ -262,11 +303,20 @@ def get_recommendations(investigation_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{investigation_id}/recommendations/{rec_id}/approve")
-def approve_recommendation(investigation_id: str, rec_id: str, db: Session = Depends(get_db), caller: str | None = Depends(get_current_caller)):
+def approve_recommendation(
+    investigation_id: str,
+    rec_id: str,
+    db: Session = Depends(get_db),
+    caller: str | None = Depends(get_current_caller),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     from app.models.investigation import ResponseRecommendation
     rec = db.get(ResponseRecommendation, rec_id)
     if not rec or rec.investigation_id != investigation_id:
         raise HTTPException(status_code=404, detail="Recommendation not found")
+    inv = db.get(Investigation, investigation_id)
+    if inv:
+        _check_investigation_access(inv, current_user)
     from datetime import datetime, timezone
     rec.approval_status = "APPROVED"
     rec.approved_by = caller or "unauthenticated-operator"
@@ -277,21 +327,31 @@ def approve_recommendation(investigation_id: str, rec_id: str, db: Session = Dep
 
 
 @router.get("/{investigation_id}/evidence/verify")
-def verify_evidence(investigation_id: str, db: Session = Depends(get_db)):
+def verify_evidence(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     from app.blockchain.ledger import verify_evidence_for_case
     return verify_evidence_for_case(db, investigation.case_id, investigation.evidence_hash_sha256)
 
 
 @router.get("/{investigation_id}/report/pdf")
-def download_pdf_report(investigation_id: str, db: Session = Depends(get_db)):
+def download_pdf_report(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     """Download a professional PDF forensic report."""
     from fastapi.responses import Response
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if not investigation.report:
         raise HTTPException(status_code=409, detail=f"Report not yet available (status={investigation.status})")
     try:
@@ -308,13 +368,18 @@ def download_pdf_report(investigation_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{investigation_id}/geo")
-def get_geo_intelligence(investigation_id: str, db: Session = Depends(get_db)):
+def get_geo_intelligence(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     """Returns GeoIP data for each public IP in the investigation.
     Results are labeled 'Probable infrastructure geolocation'.
     Never claim attacker location."""
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     from app.intel.providers import get_geoip_provider
     provider = get_geoip_provider()
     results = []
@@ -331,12 +396,17 @@ def get_geo_intelligence(investigation_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{investigation_id}/story")
-def get_attack_story(investigation_id: str, db: Session = Depends(get_db)):
+def get_attack_story(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     """AI-generated attack narrative built from actual investigation evidence.
     All claims cite real forensic findings — no fabrication."""
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if investigation.status != "COMPLETED":
         raise HTTPException(status_code=409, detail=f"Story not available yet (status={investigation.status})")
 
@@ -896,6 +966,7 @@ async def agent_chat(
     investigation_id: str,
     body: AgentChatRequest,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     """
     Ask MailShield AI a forensic question about a specific investigation.
@@ -909,6 +980,7 @@ async def agent_chat(
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
     if investigation.status != "COMPLETED":
         raise HTTPException(status_code=400, detail="Analysis not yet complete. Please wait for the investigation to finish.")
 
@@ -938,6 +1010,7 @@ async def agent_voice(
     investigation_id: str,
     body: AgentVoiceRequest,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     """
     Convert a forensic AI answer to speech using Sarvam AI TTS (bulbul:v3).
@@ -948,6 +1021,7 @@ async def agent_voice(
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
 
     result = await synthesize_speech(body.text, voice=body.voice, language=body.language)
     return result
@@ -958,6 +1032,7 @@ async def agent_transcribe(
     investigation_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ):
     """
     Transcribe spoken voice query to text using Sarvam AI STT (saaras:v3).
@@ -969,6 +1044,7 @@ async def agent_transcribe(
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
 
     audio_bytes = await file.read()
     if not audio_bytes:
@@ -983,7 +1059,11 @@ async def agent_transcribe(
 
 
 @router.get("/{investigation_id}/origin-trace")
-def get_investigation_origin_trace(investigation_id: str, db: Session = Depends(get_db)):
+def get_investigation_origin_trace(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     """
     SIH 26106 LAYER 3: ORIGIN TRACEABILITY ENGINE
     Reconstructs email transmission path across Received headers, detects relay
@@ -998,6 +1078,7 @@ def get_investigation_origin_trace(investigation_id: str, db: Session = Depends(
     investigation = db.get(Investigation, investigation_id)
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
 
     # Reconstruct hop dictionaries
     hops_data = []

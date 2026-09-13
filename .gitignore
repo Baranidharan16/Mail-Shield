@@ -15,6 +15,7 @@ backend/storage/
 *.db
 *.sqlite
 *.sqlite3
+*.bak
 
 # Node / Frontend
 node_modules/

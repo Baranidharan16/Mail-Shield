@@ -106,10 +106,17 @@ def update_case(
 
 
 @router.get("/{investigation_id}/chain-of-custody")
-def get_chain_of_custody(investigation_id: str, db: Session = Depends(get_db)):
+def get_chain_of_custody(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
     inv = db.get(Investigation, investigation_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Case not found")
+
+    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+        raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to view this case chain of custody.")
 
     audit = (
         db.query(AuditLog)

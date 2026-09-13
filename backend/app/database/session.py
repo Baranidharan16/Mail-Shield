@@ -6,13 +6,21 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 from app.core.config import get_settings
 
+from pathlib import Path
+
 settings = get_settings()
 
+db_url = settings.DATABASE_URL
+if db_url.startswith("sqlite:///./") or db_url == "sqlite:///forensics.db":
+    backend_dir = Path(__file__).resolve().parent.parent.parent
+    db_path = (backend_dir / "forensics.db").resolve()
+    db_url = f"sqlite:///{db_path.as_posix()}"
+
 _connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+if db_url.startswith("sqlite"):
     _connect_args = {"check_same_thread": False}
 
-engine = create_engine(settings.DATABASE_URL, connect_args=_connect_args, future=True)
+engine = create_engine(db_url, connect_args=_connect_args, future=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 
 Base = declarative_base()

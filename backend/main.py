@@ -132,8 +132,6 @@ try:
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(sse.router, prefix="/api/v1")
     app.include_router(system.router, prefix="/api/v1")
-    # Also mount auth at /api/v1/auth for clients that use that prefix
-    app.include_router(auth_router, prefix="/api/v1")
     logger.info("Mounted all MailShield API routers (auth + forensic + legacy).")
 except Exception as e:
     logger.warning("Could not mount legacy routers: %s", e)
@@ -149,6 +147,9 @@ if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
+        if full_path.startswith("api") or full_path.startswith("auth"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"API route not found: /{full_path}")
         target = FRONTEND_DIST / full_path
         if full_path and target.exists() and target.is_file():
             return FileResponse(str(target))
