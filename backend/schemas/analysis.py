@@ -100,6 +100,35 @@ class ModelStatusResponse(BaseModel):
     gemini_configured: bool
 
 
+class MLHealthCheckItem(BaseModel):
+    """Result of a single check performed by the /health/ml endpoint."""
+    name: str = Field(..., description="Short name of the check")
+    passed: bool = Field(..., description="True if the check succeeded")
+    detail: Optional[str] = Field(default=None, description="Human-readable detail or error")
+
+
+class MLHealthResponse(BaseModel):
+    """Full diagnostic report returned by GET /health/ml."""
+    status: str = Field(..., description="'ok' if all checks passed, 'degraded' otherwise")
+    python_version: str
+    tensorflow_version: Optional[str] = None
+    keras_version: Optional[str] = None
+    ml_model_path: str
+    nlp_model_path: str
+    ml_model_loaded: bool
+    nlp_model_loaded: bool
+    checks: List[MLHealthCheckItem] = Field(default_factory=list)
+    # Test prediction results (populated when models are loaded)
+    test_predictions: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Results of live test predictions through the full pipeline"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Last load error traceback if a model failed to load"
+    )
+
+
 # ── Assistant / Voice Schemas ──────────────────────────────────────────────────
 
 class AssistantChatRequest(BaseModel):

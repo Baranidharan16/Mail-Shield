@@ -185,6 +185,7 @@ export default function DashboardPage() {
       <div className="p-6 md:p-8 max-w-4xl mx-auto">
         <MailShieldLiveAnalysis
           data={gmailAnalysis}
+          investigationId={gmailInvestigationId || undefined}
           onReset={() => {
             setGmailAnalysis(null);
             setGmailInvestigationId(null);

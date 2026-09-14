@@ -237,7 +237,9 @@ async def analyze_email(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Unexpected error during email analysis: %s", exc)
+        # Log the FULL traceback so the exact upstream error (e.g. Keras shape
+        # mismatch, preprocessing failure) is always visible in development logs.
+        logger.exception("Unexpected error during email analysis pipeline: %s", exc)
         raise HTTPException(
             status_code=500,
             detail=f"Analysis pipeline error: {str(exc)}"

@@ -1,6 +1,6 @@
 export type InvestigationStatus = "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
 export type Classification = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type CaseStatus = "OPEN" | "UNDER_INVESTIGATION" | "RESOLVED" | "ARCHIVED";
+export type CaseStatus = "OPEN" | "UNDER_INVESTIGATION" | "CONTAINED" | "RESOLVED" | "ARCHIVED";
 export type AlertStatus = "DETECTED" | "TRIAGED" | "INVESTIGATING" | "CONTAINED" | "RESOLVED";
 
 export interface InvestigationSummary {

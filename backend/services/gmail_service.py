@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("mailshield.services.gmail")
@@ -124,10 +125,12 @@ class UserGmailSession:
     Does NOT store state across requests — all state lives in the DB.
     """
 
-    def __init__(self, access_token: str, user_email: str = ""):
+    def __init__(self, access_token: str, user_email: str = "", user_id: str = ""):
         self._access_token = access_token
         self.user_email = user_email
+        self.user_id = user_id
         self._headers = {"Authorization": f"Bearer {access_token}"}
+        self._quarantine_label_id: Optional[str] = None
 
     @property
     def is_connected(self) -> bool:
@@ -144,6 +147,73 @@ class UserGmailSession:
             logger.warning("Gmail profile fetch failed (%s): %s", resp.status_code, resp.text)
             return {"emailAddress": self.user_email, "messagesTotal": 0, "is_connected": True}
 
+    async def get_or_create_label(self, label_name: str = "Quarantine") -> str:
+        """
+        Dynamically discovers the Gmail user label ID by name (case-insensitive)
+        using users.labels.list.
+        If the label does not exist, creates it dynamically using users.labels.create.
+        Never hardcodes label IDs.
+        """
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{GMAIL_API_BASE}/labels",
+                headers=self._headers,
+            )
+            if resp.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Gmail access token expired or revoked. Please re-authenticate your Gmail connection.",
+                )
+            if resp.status_code == 403:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Insufficient Gmail permissions. Scope https://www.googleapis.com/auth/gmail.modify is required.",
+                )
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Failed to query Gmail labels from API: {resp.text}",
+                )
+
+            labels = resp.json().get("labels", [])
+            for l in labels:
+                if l.get("name", "").strip().lower() == label_name.strip().lower():
+                    logger.info("Found existing dynamic Gmail label '%s' (ID: %s)", label_name, l["id"])
+                    self._quarantine_label_id = l["id"]
+                    return l["id"]
+
+            # Label does not exist -> create it dynamically via Gmail API
+            logger.info("Gmail label '%s' does not exist. Creating dynamically via Gmail API...", label_name)
+            create_payload = {
+                "name": label_name,
+                "labelListVisibility": "labelShow",
+                "messageListVisibility": "show",
+            }
+            create_resp = await client.post(
+                f"{GMAIL_API_BASE}/labels",
+                headers={**self._headers, "Content-Type": "application/json"},
+                json=create_payload,
+            )
+            if create_resp.status_code == 409:
+                # Conflict / duplicate race condition: re-fetch labels
+                re_resp = await client.get(f"{GMAIL_API_BASE}/labels", headers=self._headers)
+                for l in re_resp.json().get("labels", []):
+                    if l.get("name", "").strip().lower() == label_name.strip().lower():
+                        self._quarantine_label_id = l["id"]
+                        return l["id"]
+
+            if create_resp.status_code not in (200, 201):
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Failed to create Gmail label '{label_name}': {create_resp.text}",
+                )
+
+            created_label = create_resp.json()
+            label_id = created_label["id"]
+            logger.info("Successfully created Gmail label '%s' with dynamic ID: %s", label_name, label_id)
+            self._quarantine_label_id = label_id
+            return label_id
+
     async def list_messages(
         self, query: str = "", max_results: int = 20
     ) -> List[Dict[str, Any]]:
@@ -151,6 +221,12 @@ class UserGmailSession:
         Lists emails from user's inbox with sender, subject, snippet.
         Returns real Gmail API data only — no sandbox/fake messages.
         """
+        if self._quarantine_label_id is None:
+            try:
+                self._quarantine_label_id = await self.get_or_create_label("Quarantine")
+            except Exception as ex:
+                logger.warning("Could not pre-resolve Quarantine label ID: %s", ex)
+
         params: Dict[str, Any] = {"maxResults": max_results, "labelIds": "INBOX"}
         if query:
             params["q"] = query
@@ -191,6 +267,11 @@ class UserGmailSession:
                 for hdr in d.get("payload", {}).get("headers", [])
             }
             labels = d.get("labelIds", [])
+            is_quarantined = bool(
+                (self._quarantine_label_id and self._quarantine_label_id in labels)
+                or ("SPAM" in labels)
+                or ("MAILSHIELD_QUARANTINE" in labels)
+            )
             return {
                 "id": d["id"],
                 "threadId": d["threadId"],
@@ -198,7 +279,7 @@ class UserGmailSession:
                 "subject": h.get("subject", "(No Subject)"),
                 "date": h.get("date", ""),
                 "snippet": d.get("snippet", ""),
-                "is_quarantined": "MAILSHIELD_QUARANTINE" in labels,
+                "is_quarantined": is_quarantined,
                 "labels": labels,
             }
 
@@ -224,64 +305,191 @@ class UserGmailSession:
             )
             return b""
 
-    async def quarantine_message(self, message_id: str) -> Dict[str, Any]:
+    async def quarantine_message(
+        self,
+        message_id: str,
+        destination: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Applies reversible quarantine: adds MAILSHIELD_QUARANTINE label, removes INBOX.
+        Quarantines a Gmail message:
+        1. Resolves target label:
+           - For baranidharanboopathy66@gmail.com (or destination='quarantine'):
+             Finds or creates the user label 'Quarantine' dynamically, adds Quarantine label ID, removes INBOX.
+           - For destination='spam':
+             Adds 'SPAM' label ID, removes INBOX.
+        2. Validates message existence in user's Gmail.
+        3. Executes users.messages.modify with addLabelIds and removeLabelIds.
+        4. Verifies modification response from Gmail API before confirming success.
         """
-        payload = {
-            "addLabelIds": ["MAILSHIELD_QUARANTINE"],
-            "removeLabelIds": ["INBOX"],
-        }
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
+        target_dest = (destination or "").strip().lower()
+        if not target_dest:
+            if not self.user_email:
+                try:
+                    prof = await self.fetch_profile()
+                    self.user_email = prof.get("emailAddress", "")
+                except Exception:
+                    pass
+            if "baranidharanboopathy66" in (self.user_email or "").lower():
+                target_dest = "quarantine"
+            else:
+                target_dest = "spam"
+
+        target_label_id: str
+        target_label_name: str
+
+        if target_dest == "spam":
+            target_label_name = "SPAM"
+            target_label_id = "SPAM"
+        else:
+            target_label_name = "Quarantine"
+            target_label_id = await self.get_or_create_label("Quarantine")
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Verify message exists and inspect current labels
+            check_resp = await client.get(
+                f"{GMAIL_API_BASE}/messages/{message_id}",
+                headers=self._headers,
+                params={"format": "minimal"},
+            )
+            if check_resp.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Gmail message '{message_id}' not found in connected Gmail account.",
+                )
+            if check_resp.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Gmail access token expired. Please re-authorize via /auth/google.",
+                )
+            if check_resp.status_code == 403:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Insufficient Gmail permissions to inspect message. Ensure https://www.googleapis.com/auth/gmail.modify scope is granted.",
+                )
+            if check_resp.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Gmail API error checking message: {check_resp.text}",
+                )
+
+            current_labels = check_resp.json().get("labelIds", [])
+
+            # Check if already quarantined
+            if target_label_id in current_labels and "INBOX" not in current_labels:
+                logger.info("Message %s is already quarantined under label %s", message_id, target_label_id)
+                return {
+                    "status": "QUARANTINED",
+                    "message_id": message_id,
+                    "label_id": target_label_id,
+                    "label_name": target_label_name,
+                    "destination": target_dest,
+                    "already_quarantined": True,
+                    "inbox_removed": True,
+                    "labels": current_labels,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "action": f"Message is already isolated under {target_label_name}.",
+                }
+
+            # 2. Modify message: add target label, remove INBOX
+            modify_payload = {
+                "addLabelIds": [target_label_id],
+                "removeLabelIds": ["INBOX"],
+            }
+            modify_resp = await client.post(
                 f"{GMAIL_API_BASE}/messages/{message_id}/modify",
                 headers={**self._headers, "Content-Type": "application/json"},
-                json=payload,
+                json=modify_payload,
             )
-            if resp.status_code not in (200, 204):
-                logger.warning("Quarantine label apply returned %s", resp.status_code)
 
-        return {
-            "status": "QUARANTINED",
-            "message_id": message_id,
-            "policy": "MAILSHIELD_CRITICAL_SECURITY_POLICY",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "label_applied": "MAILSHIELD_QUARANTINE",
-            "action": "Removed from primary inbox view and isolated in quarantine vault.",
-            "reversible": True,
-        }
+            if modify_resp.status_code == 403:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Insufficient Gmail scope. Scope https://www.googleapis.com/auth/gmail.modify is required to modify message labels.",
+                )
+            if modify_resp.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Gmail access token expired or revoked. Please re-authorize your connection.",
+                )
+            if modify_resp.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Gmail API modification failed: {modify_resp.text}",
+                )
+
+            result_data = modify_resp.json()
+            updated_labels = result_data.get("labelIds", [])
+
+            # Verify that modification actually took effect
+            if target_label_id not in updated_labels:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Gmail API modification response missing target label '{target_label_name}'.",
+                )
+
+            logger.info(
+                "Quarantine successful for msg %s: applied label %s (%s), removed INBOX. Result labels: %s",
+                message_id, target_label_name, target_label_id, updated_labels,
+            )
+
+            return {
+                "status": "QUARANTINED",
+                "message_id": message_id,
+                "label_id": target_label_id,
+                "label_name": target_label_name,
+                "destination": target_dest,
+                "inbox_removed": "INBOX" not in updated_labels,
+                "labels": updated_labels,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": f"Email successfully moved to {target_label_name} and removed from INBOX.",
+            }
 
     async def release_message(self, message_id: str) -> Dict[str, Any]:
-        """Releases quarantined email back to the standard inbox."""
-        payload = {
-            "addLabelIds": ["INBOX"],
-            "removeLabelIds": ["MAILSHIELD_QUARANTINE"],
-        }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        """Releases quarantined email back to the standard INBOX."""
+        quarantine_label_id = await self.get_or_create_label("Quarantine")
+
+        # Get current message labels so we only request removal of labels that actually exist
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            meta_resp = await client.get(
+                f"{GMAIL_API_BASE}/messages/{message_id}",
+                headers=self._headers,
+                params={"format": "minimal"},
+            )
+            current_labels = meta_resp.json().get("labelIds", []) if meta_resp.status_code == 200 else []
+
+            remove_labels = [lbl for lbl in [quarantine_label_id, "SPAM"] if lbl in current_labels]
+
+            payload = {
+                "addLabelIds": ["INBOX"],
+                "removeLabelIds": remove_labels,
+            }
             resp = await client.post(
                 f"{GMAIL_API_BASE}/messages/{message_id}/modify",
                 headers={**self._headers, "Content-Type": "application/json"},
                 json=payload,
             )
-            if resp.status_code not in (200, 204):
-                logger.warning("Quarantine release returned %s", resp.status_code)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Gmail API release failed: {resp.text}",
+                )
 
-        return {
-            "status": "RELEASED",
-            "message_id": message_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": "MAILSHIELD_QUARANTINE label removed; restored to user inbox.",
-        }
+            return {
+                "status": "RELEASED",
+                "message_id": message_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": "Message restored to INBOX; removed from Quarantine.",
+            }
 
 
 def load_user_gmail_session(user_id: str, db: Session) -> Optional[UserGmailSession]:
     """
     Loads the Gmail session for a specific user from the database.
     Returns None if the user has no linked Gmail account or tokens are missing.
-    Decrypts stored tokens using the Fernet key.
+    Automatically refreshes expired access tokens using the refresh token if available.
     """
     from app.models.gmail_account import GmailAccount
-    from utils.token_crypto import decrypt_token
+    from utils.token_crypto import decrypt_token, encrypt_token
 
     account = db.query(GmailAccount).filter(
         GmailAccount.user_id == user_id,
@@ -292,13 +500,49 @@ def load_user_gmail_session(user_id: str, db: Session) -> Optional[UserGmailSess
         return None
 
     access_token = decrypt_token(account.encrypted_access_token or "")
+    refresh_token = decrypt_token(account.encrypted_refresh_token or "")
+
+    # Check token expiry; if expired or expiring within 60 seconds, refresh automatically
+    now_epoch = int(time.time())
+    expiry_epoch = int(account.token_expiry_epoch or account.token_expiry or 0)
+
+    if (expiry_epoch - now_epoch < 60) and refresh_token:
+        client_id = _get_client_id()
+        client_secret = _get_client_secret()
+        if client_id and client_secret:
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        GOOGLE_TOKEN_ENDPOINT,
+                        data={
+                            "client_id": client_id,
+                            "client_secret": client_secret,
+                            "refresh_token": refresh_token,
+                            "grant_type": "refresh_token",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        new_data = resp.json()
+                        access_token = new_data.get("access_token", access_token)
+                        expires_in = new_data.get("expires_in", 3600)
+                        account.encrypted_access_token = encrypt_token(access_token)
+                        account.token_expiry_epoch = str(now_epoch + int(expires_in))
+                        account.token_expiry = account.token_expiry_epoch
+                        db.commit()
+                        logger.info("Successfully refreshed expired Gmail access token for user %s", user_id)
+                    else:
+                        logger.warning("Gmail token refresh attempt returned %s: %s", resp.status_code, resp.text)
+            except Exception as ex:
+                logger.error("Error refreshing Gmail token for user %s: %s", user_id, ex)
+
     if not access_token:
         logger.warning("Gmail account for user %s has no decryptable access token", user_id)
         return None
 
     return UserGmailSession(
         access_token=access_token,
-        user_email=account.google_email or "",
+        user_email=account.google_email or account.google_account_email or "",
+        user_id=user_id,
     )
 
 

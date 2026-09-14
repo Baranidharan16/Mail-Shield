@@ -4,13 +4,14 @@ import {
   ArrowLeft, Mail, Link2, Globe2, Network, FileWarning, MessageSquareWarning,
   Download, ShieldAlert, Fingerprint, Clock, GitBranch,
   Lock, Layers, AlertTriangle, Shield, ListChecks, Users, MapPin,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, CheckCircle2, RefreshCw,
 } from "lucide-react";
 import {
   getInvestigation, getReport, getAttackGraph, getRecommendations,
   getChainOfCustody, getTimeline, getGeoIntelligence, getCampaign,
-  getOriginTrace, type OriginTraceResult,
+  getOriginTrace, quarantineInvestigation, type OriginTraceResult,
 } from "../api/client";
+import { QuarantineConfirmModal } from "../components/QuarantineConfirmModal";
 import type {
   InvestigationDetail, AttackGraphData, Recommendation,
   ChainOfCustodyResponse, TimelineResponse, GeoResponse, CampaignResponse,
@@ -96,6 +97,35 @@ export default function InvestigationDetailPage() {
   const [geo, setGeo] = useState<GeoResponse | null>(null);
   const [campaign, setCampaign] = useState<CampaignResponse | null>(null);
   const [originTrace, setOriginTrace] = useState<OriginTraceResult | null>(null);
+
+  // Quarantine action state
+  const [isQuarantineModalOpen, setIsQuarantineModalOpen] = useState(false);
+  const [quarantineState, setQuarantineState] = useState<"idle" | "loading" | "success" | "failed">("idle");
+  const [quarantineFeedback, setQuarantineFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  async function handleConfirmQuarantine() {
+    if (!id) return;
+    setQuarantineState("loading");
+    setQuarantineFeedback(null);
+    try {
+      const res = await quarantineInvestigation(id);
+      setQuarantineState("success");
+      setData((prev) => (prev ? { ...prev, case_status: "CONTAINED" } : null));
+      setQuarantineFeedback({
+        type: "success",
+        text: `Email successfully quarantined to ${res.label_name || "Quarantine"} and removed from INBOX.`,
+      });
+      setIsQuarantineModalOpen(false);
+    } catch (err: any) {
+      setQuarantineState("failed");
+      const detail = err?.response?.data?.detail || "Quarantine operation failed via Gmail API.";
+      setQuarantineFeedback({
+        type: "error",
+        text: `QUARANTINE FAILED: ${detail}`,
+      });
+      setIsQuarantineModalOpen(false);
+    }
+  }
 
   function scrollToSection(sectionId: string) {
     const el = document.getElementById(sectionId);
@@ -200,6 +230,37 @@ export default function InvestigationDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 mt-1 shrink-0">
+          {(data.original_filename?.startsWith("gmail_") || (data.notes && data.notes.some((n: any) => n?.gmail_message_id))) && (
+            (data.case_status === "CONTAINED" || quarantineState === "success") ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold font-mono tracking-wider">
+                <Lock className="h-3.5 w-3.5 text-emerald-400" /> QUARANTINED
+              </span>
+            ) : (
+              <button
+                onClick={() => setIsQuarantineModalOpen(true)}
+                disabled={quarantineState === "loading"}
+                className={`inline-flex items-center gap-2 text-xs font-mono font-bold px-3 py-2 rounded-md transition-all cursor-pointer ${
+                  quarantineState === "failed"
+                    ? "border border-red-500 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                    : "border border-red-500/40 bg-red-600/20 hover:bg-red-600/30 text-red-300 shadow-sm shadow-red-950/40"
+                }`}
+              >
+                {quarantineState === "loading" ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" /> QUARANTINING...
+                  </>
+                ) : quarantineState === "failed" ? (
+                  <>
+                    <AlertTriangle className="h-3.5 w-3.5" /> QUARANTINE FAILED (RETRY)
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-3.5 w-3.5 text-red-400" /> QUARANTINE
+                  </>
+                )}
+              </button>
+            )
+          )}
           <button
             onClick={downloadReport}
             className="inline-flex items-center gap-2 border border-lab-700 text-lab-300 text-sm px-4 py-2 rounded-md hover:border-lab-500 hover:text-lab-100 transition-colors"
@@ -209,6 +270,31 @@ export default function InvestigationDetailPage() {
           </button>
         </div>
       </div>
+
+      {quarantineFeedback && (
+        <div
+          className={`mb-6 p-4 rounded-xl border flex items-center justify-between text-xs font-mono animate-fade-in ${
+            quarantineFeedback.type === "success"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+              : "bg-red-500/10 border-red-500/30 text-red-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {quarantineFeedback.type === "success" ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+            )}
+            <span>{quarantineFeedback.text}</span>
+          </div>
+          <button
+            onClick={() => setQuarantineFeedback(null)}
+            className="text-slate-400 hover:text-white p-1 cursor-pointer"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* 🚨 SOC SECURITY ALERT BANNER (Automatic for HIGH & CRITICAL) */}
       {isHighOrCritical && (
@@ -666,6 +752,16 @@ export default function InvestigationDetailPage() {
           </div>
         </Section>
       </div>
+
+      {/* Quarantine Confirmation Modal */}
+      <QuarantineConfirmModal
+        isOpen={isQuarantineModalOpen}
+        onClose={() => setIsQuarantineModalOpen(false)}
+        onConfirm={handleConfirmQuarantine}
+        loading={quarantineState === "loading"}
+        subject={data.email_metadata?.subject || data.original_filename}
+        sender={data.email_metadata?.from_address || undefined}
+      />
     </div>
   );
 }

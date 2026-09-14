@@ -4,6 +4,7 @@ Handles Argon2 password hashing, verification, and JWT access token creation/val
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -17,11 +18,16 @@ from app.core.config import get_settings
 logger = logging.getLogger("mailshield.services.auth")
 settings = get_settings()
 
-# Initialize Argon2 PasswordHasher with industry standard parameters
+# Initialize Argon2 PasswordHasher.
+# memory_cost=16384 (16 MiB) is still well above the OWASP minimum of 12 MiB
+# and dramatically faster than 64 MiB on a laptop CPU — which was causing
+# 40-50 second response times and triggering Axios/client timeouts that showed
+# as "Registration failed" / "Login failed" on the frontend even though the
+# operation was actually succeeding server-side.
 _hasher = PasswordHasher(
     time_cost=3,
-    memory_cost=65536,  # 64 MiB
-    parallelism=4,
+    memory_cost=16384,  # 16 MiB — OWASP-compliant, ~4x faster than 64 MiB
+    parallelism=2,
     hash_len=32,
     salt_len=16,
 )
@@ -32,6 +38,13 @@ def hash_password(plain_password: str) -> str:
     if not plain_password:
         raise ValueError("Password cannot be empty.")
     return _hasher.hash(plain_password)
+
+
+async def hash_password_async(plain_password: str) -> str:
+    """Async wrapper: runs Argon2 hashing in a thread pool so it never blocks
+    the FastAPI event loop. Use this in all async route handlers."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, hash_password, plain_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -45,6 +58,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception as exc:
         logger.error("Error during password verification: %s", exc)
         return False
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """Async wrapper: runs Argon2 verification in a thread pool so it never
+    blocks the FastAPI event loop. Use this in all async route handlers."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, verify_password, plain_password, hashed_password)
 
 
 def create_access_token(

@@ -1,0 +1,88 @@
+{
+  "model_name": "MailShield_NLP_v2",
+  "model_type": "multi_label_text_classification",
+  "framework": "TensorFlow/Keras",
+  "threat_categories": [
+    "credential_theft",
+    "impersonation",
+    "urgency",
+    "financial_manipulation",
+    "threat_extortion",
+    "suspicious_action"
+  ],
+  "thresholds": {
+    "credential_theft": 0.14,
+    "impersonation": 0.49,
+    "urgency": 0.4,
+    "financial_manipulation": 0.64,
+    "threat_extortion": 0.33,
+    "suspicious_action": 0.47
+  },
+  "vocabulary_size": 15000,
+  "sequence_length": 200,
+  "embedding_dimension": 96,
+  "lstm_units": 48,
+  "batch_size": 256,
+  "epochs_requested": 6,
+  "test_samples": 6036,
+  "macro_precision": 0.8233243696347863,
+  "macro_recall": 0.8430807668722976,
+  "macro_f1": 0.8299372755835818,
+  "micro_f1": 0.9027678528893335,
+  "per_category": [
+    {
+      "category": "credential_theft",
+      "threshold": 0.14,
+      "accuracy": 0.9491385023194169,
+      "precision": 0.42618384401114207,
+      "recall": 0.6023622047244095,
+      "f1": 0.499184339314845,
+      "roc_auc": 0.9256455685170104
+    },
+    {
+      "category": "impersonation",
+      "threshold": 0.49,
+      "accuracy": 0.9638833664678595,
+      "precision": 0.9652087475149106,
+      "recall": 0.9291866028708134,
+      "f1": 0.946855192588981,
+      "roc_auc": 0.9897138886935349
+    },
+    {
+      "category": "urgency",
+      "threshold": 0.4,
+      "accuracy": 0.870444002650762,
+      "precision": 0.7871993477374644,
+      "recall": 0.881332724783204,
+      "f1": 0.8316106804478898,
+      "roc_auc": 0.9499229321512108
+    },
+    {
+      "category": "financial_manipulation",
+      "threshold": 0.64,
+      "accuracy": 0.9715043074884029,
+      "precision": 0.9758713136729222,
+      "recall": 0.9589762890477983,
+      "f1": 0.9673500379650721,
+      "roc_auc": 0.9931494787872092
+    },
+    {
+      "category": "threat_extortion",
+      "threshold": 0.33,
+      "accuracy": 0.9398608349900597,
+      "precision": 0.8027989821882952,
+      "recall": 0.7520858164481525,
+      "f1": 0.7766153846153846,
+      "roc_auc": 0.9614717668555001
+    },
+    {
+      "category": "suspicious_action",
+      "threshold": 0.47,
+      "accuracy": 0.9670311464546058,
+      "precision": 0.9826839826839827,
+      "recall": 0.9345409633594072,
+      "f1": 0.9580080185693184,
+      "roc_auc": 0.9905248052166988
+    }
+  ]
+}

@@ -5,10 +5,11 @@ import {
   Search,
   RefreshCw,
   Lock,
-  LockOpen,
   Radio,
   Zap,
   LogOut,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   getGmailStatus,
@@ -23,6 +24,8 @@ import {
   type GmailStatusResponse,
 } from "../api/client";
 import type { MailShieldAnalysisResponse } from "../types/investigation";
+
+import { QuarantineConfirmModal } from "./QuarantineConfirmModal";
 
 interface GmailInboxPanelProps {
   onAnalyzeSuccess: (res: MailShieldAnalysisResponse, investigationId: string) => void;
@@ -41,6 +44,8 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [quarantiningId, setQuarantiningId] = useState<string | null>(null);
+  const [confirmMsg, setConfirmMsg] = useState<GmailMessageItem | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ id: string; type: "success" | "error"; message: string } | null>(null);
 
   const fetchStatusAndMessages = async () => {
     setLoading(true);
@@ -125,23 +130,58 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
   };
 
   const handleToggleQuarantine = async (msg: GmailMessageItem) => {
-    setQuarantiningId(msg.id);
-    try {
-      if (msg.is_quarantined) {
+    if (msg.is_quarantined) {
+      setQuarantiningId(msg.id);
+      try {
         await releaseGmailMessage(msg.id);
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.id ? { ...m, is_quarantined: false } : m))
         );
-      } else {
-        await quarantineGmailMessage(msg.id);
-        setMessages((prev) =>
-          prev.map((m) => (m.id === msg.id ? { ...m, is_quarantined: true } : m))
-        );
+        setActionFeedback({
+          id: msg.id,
+          type: "success",
+          message: "Email released back to INBOX.",
+        });
+        const st = await getGmailStatus();
+        setStatus(st);
+      } catch (err: any) {
+        onError(err?.response?.data?.detail || "Failed to release email to INBOX.");
+      } finally {
+        setQuarantiningId(null);
       }
+    } else {
+      // Trigger confirmation modal asking for permission (Keep vs Move)
+      setConfirmMsg(msg);
+    }
+  };
+
+  const handleConfirmQuarantine = async () => {
+    if (!confirmMsg) return;
+    const targetMsg = confirmMsg;
+    setQuarantiningId(targetMsg.id);
+    setActionFeedback(null);
+    try {
+      const res = await quarantineGmailMessage(targetMsg.id);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === targetMsg.id ? { ...m, is_quarantined: true } : m))
+      );
+      setActionFeedback({
+        id: targetMsg.id,
+        type: "success",
+        message: res.action || "QUARANTINED",
+      });
       const st = await getGmailStatus();
       setStatus(st);
+      setConfirmMsg(null);
     } catch (err: any) {
-      onError("Quarantine operation failed.");
+      const detail = err?.response?.data?.detail || "Gmail API quarantine failed.";
+      setActionFeedback({
+        id: targetMsg.id,
+        type: "error",
+        message: `QUARANTINE FAILED: ${detail}`,
+      });
+      onError(`Quarantine failed: ${detail}`);
+      setConfirmMsg(null);
     } finally {
       setQuarantiningId(null);
     }
@@ -254,6 +294,31 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
         </button>
       </form>
 
+      {actionFeedback && (
+        <div
+          className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono animate-fade-in ${
+            actionFeedback.type === "success"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+              : "bg-red-500/10 border-red-500/30 text-red-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {actionFeedback.type === "success" ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+            )}
+            <span>{actionFeedback.message}</span>
+          </div>
+          <button
+            onClick={() => setActionFeedback(null)}
+            className="text-slate-400 hover:text-white p-1 cursor-pointer"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Messages List */}
       <div className="glass-section rounded-2xl border-white/10 overflow-hidden divide-y divide-white/5">
         {messages.length === 0 ? (
@@ -327,15 +392,19 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
                   <button
                     onClick={() => handleToggleQuarantine(msg)}
                     disabled={isQuarantining}
-                    className={`py-1.5 px-2.5 rounded-lg text-xs font-mono flex items-center gap-1 border transition-all ${
+                    className={`py-1.5 px-2.5 rounded-lg text-xs font-mono flex items-center gap-1 border transition-all cursor-pointer ${
                       msg.is_quarantined
-                        ? "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                        : "bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/30"
+                        ? "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-semibold"
+                        : "bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/30 font-semibold"
                     }`}
                   >
-                    {msg.is_quarantined ? (
+                    {isQuarantining ? (
                       <>
-                        <LockOpen className="h-3.5 w-3.5" /> Release
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Quarantining...
+                      </>
+                    ) : msg.is_quarantined ? (
+                      <>
+                        <Lock className="h-3.5 w-3.5 text-emerald-400" /> QUARANTINED
                       </>
                     ) : (
                       <>
@@ -349,6 +418,17 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
           })
         )}
       </div>
+
+      {/* Confirmation Modal for Permission to Keep or Move */}
+      <QuarantineConfirmModal
+        isOpen={!!confirmMsg}
+        onClose={() => setConfirmMsg(null)}
+        onConfirm={handleConfirmQuarantine}
+        loading={quarantiningId === confirmMsg?.id}
+        subject={confirmMsg?.subject}
+        sender={confirmMsg?.sender}
+        accountEmail={status?.email}
+      />
     </div>
   );
 };

@@ -13,16 +13,17 @@ EMAIL UPLOAD (.eml or raw text)
         ↓
    EMAIL PARSER (Headers, Bodies, URLs, Domains, Attachments)
         ↓
-┌───────────────────────┬────────────────────────┬─────────────────────────┐
-│                       │                        │                         │
-▼                       ▼                        ▼                         │
-ML PHISHING MODEL       NLP THREAT MODEL         FORENSIC ANALYZER         │
-(mailshield_ml.keras)   (mailshield_nlp.keras)   (SPF, DKIM, DMARC, URLs)  │
-│                       │                        │                         │
-▼                       ▼                        ▼                         │
-Phishing Probability    6 Threat Patterns        Header/URL/Domain Findings│
-│                       │                        │                         │
-└───────────────────────┴────────────────────────┴─────────────────────────┘
+┌────────────────────────┬────────────────────────┬─────────────────────────┐
+│                        │                        │                         │
+▼                        ▼                        ▼                         │
+ML PHISHING MODEL (v2)   NLP THREAT MODEL (v2)    FORENSIC ANALYZER         │
+(Mailshield_phishing_    (MailShield_NLP_v2.      (SPF, DKIM, DMARC, URLs)  │
+ model_v2.keras)          keras)                                            │
+│                        │                        │                         │
+▼                        ▼                        ▼                         │
+Phishing Probability     6 Threat Dimensions      Header/URL/Domain Findings│
+│                        │                        │                         │
+└────────────────────────┴────────────────────────┴─────────────────────────┘
         ↓
    DETERMINISTIC RISK ENGINE (Transparent 0-100 Score & Low/Med/High/Crit Level)
         ↓
@@ -78,13 +79,32 @@ DEBUG=True
 
 ---
 
-## 3. Where to Place the `.keras` Models
+## 3. Deep Learning Models & Threat Architecture
 
-The models must be placed inside the `backend/models/` directory:
-- `backend/models/mailshield_ml.keras` (MailShield ML Phishing Detection Model)
-- `backend/models/mailshield_nlp.keras` (MailShield NLP Threat-Pattern Model)
+The models live inside the `backend/models/` directory alongside their metadata profiles:
 
-Both models are loaded once into memory during application startup.
+### A. Phishing Detection Model (`Mailshield_phishing_model_v2.keras`)
+- **Type**: Binary Text Classification (Phishing vs Legitimate)
+- **Framework**: TensorFlow 2.21 / Keras 3.15
+- **Architecture**: `TextVectorization (20k vocab)` → `Embedding (dim 128)` → `LSTM (64 units)` → `Dense`
+- **Optimal Decision Threshold**: `0.35`
+- **Performance**:
+  - Test Accuracy: `99.32%`
+  - Precision: `99.42%` | Recall: `99.23%` | F1-Score: `99.32%` | ROC-AUC: `0.9996`
+- **Trained on**: 109,758 samples (CEAS_08, Enron, Ling, Nazario, Nigerian Fraud, SpamAssassin)
+
+### B. NLP Multi-Label Threat-Pattern Classifier (`MailShield_NLP_v2.keras`)
+- **Type**: Multi-Label Text Classification (6 Threat Dimensions)
+- **Framework**: TensorFlow 2.21 / Keras 3.15
+- **Architecture**: `TextVectorization (15k vocab)` → `Embedding (dim 96)` → `Bidirectional LSTM (48 units)` → `Dense(64)` → `Dense(6, sigmoid)`
+- **Dynamic Categories & Calibrated Thresholds**:
+  1. `credential_theft` (`0.14`) — Attempts to harvest logins/passwords
+  2. `impersonation` (`0.49`) — Brand, authority, or executive spoofing
+  3. `urgency` (`0.40`) — Time pressure, panic triggers, immediate deadlines
+  4. `financial_manipulation` (`0.64`) — Wire fraud, invoices, gift cards, cryptolures
+  5. `threat_extortion` (`0.33`) — Blackmail, account closure threats, legal consequences
+  6. `suspicious_action` (`0.47`) — Suspicious links, executable downloads, verification clicks
+- **Performance**: Macro F1: `83.0%` | Micro F1: `90.3%` | Test Samples: 6,036
 
 ---
 
@@ -92,50 +112,50 @@ Both models are loaded once into memory during application startup.
 
 Run the backend server using Uvicorn:
 ```powershell
-# From project root:
-backend\.venv\Scripts\uvicorn.exe backend.main:app --host 0.0.0.0 --port 8000 --reload
-```
-Or directly from the `backend/` directory:
-```powershell
-cd backend
-..\backend\.venv\Scripts\uvicorn.exe main:app --host 0.0.0.0 --port 8000 --reload
+# From backend directory:
+.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ---
 
-## 5. How to Test `/api/health`
+## 5. Health & Diagnostic Endpoints
 
-Using curl or PowerShell:
-```powershell
-curl http://localhost:8000/api/health
-```
-Expected response:
-```json
-{
-  "status": "ok",
-  "app_name": "MAILSHIELD",
-  "version": "1.0.0"
-}
-```
+### `/api/health`
+Returns system status.
 
----
-
-## 6. How to Test `/api/model-status`
-
-```powershell
-curl http://localhost:8000/api/model-status
-```
-Expected response:
+### `/api/model-status`
+Returns real-time load status and active model paths:
 ```json
 {
   "ml_model_loaded": true,
   "nlp_model_loaded": true,
-  "ml_model_path": "...\\backend\\models\\mailshield_ml.keras",
-  "nlp_model_path": "...\\backend\\models\\mailshield_nlp.keras",
+  "ml_model_path": "...\\backend\\models\\Mailshield_phishing_model_v2.keras",
+  "nlp_model_path": "...\\backend\\models\\MailShield_NLP_v2.keras",
   "reasoning_provider": "gemini",
   "gemini_configured": true
 }
 ```
+
+### `/api/health/ml`
+Performs deep end-to-end diagnostic checks:
+1. TensorFlow and Keras import verification
+2. Model file existence and integrity
+3. Memory residency check
+4. TextVectorization input tensor preprocessing
+5. Live prediction checks across test emails (normal, spam, phishing, extortion)
+
+---
+
+## 6. Live Gmail Quarantine & Remediation Action
+
+MailShield connects directly to Gmail via Google OAuth (`gmail.modify` scope):
+- **Dynamic Label Discovery**: Dynamically resolves or creates the `Quarantine` label via Gmail API.
+- **Isolation Action**: Calls `users.messages.modify` to apply `Quarantine` and remove `INBOX`.
+- **Endpoints**:
+  - `POST /api/v1/gmail/quarantine/{message_id}`
+  - `POST /api/v1/investigations/{investigation_id}/quarantine`
+  - `POST /api/v1/gmail/release/{message_id}`
+- **Security**: Auth0 JWT identity enforcement ensures users can only quarantine emails they own.
 
 ---
 

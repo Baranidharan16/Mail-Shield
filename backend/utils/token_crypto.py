@@ -20,6 +20,13 @@ def _get_fernet():
         return _fernet
 
     key_str = os.getenv("FERNET_KEY", "")
+    if not key_str:
+        try:
+            import dotenv
+            dotenv.load_dotenv()
+            key_str = os.getenv("FERNET_KEY", "")
+        except Exception:
+            pass
     if key_str:
         try:
             from cryptography.fernet import Fernet

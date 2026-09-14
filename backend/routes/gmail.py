@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import jwt as _jwt
@@ -336,12 +337,139 @@ async def analyze_gmail_message(
 @router.post("/api/gmail/quarantine/{message_id}")
 async def quarantine_gmail_message(
     message_id: str,
+    destination: Optional[str] = Query(None, description="Target quarantine destination: 'quarantine' or 'spam'"),
     current_user: User = Depends(get_required_current_user),
     db: Session = Depends(get_db),
 ):
-    """Quarantines a Gmail message for the authenticated user."""
+    """
+    Quarantines a Gmail message for the authenticated user:
+    1. Verifies the user has a valid, active Gmail OAuth session.
+    2. Enforces ownership: if an investigation exists for this email, confirms current_user owns it.
+    3. Finds or creates the dynamic 'Quarantine' label (or 'SPAM' if requested) via Gmail API.
+    4. Applies target label and removes INBOX label.
+    5. Confirms with Gmail API and updates investigation case_status to 'CONTAINED'.
+    """
     session = _require_gmail_session(current_user, db)
-    return await session.quarantine_message(message_id)
+
+    # Enforce security: verify ownership of corresponding investigation if present
+    from app.models.investigation import Investigation
+    inv = db.query(Investigation).filter(
+        (Investigation.original_filename == f"gmail_{message_id}.eml") |
+        (Investigation.id == message_id)
+    ).first()
+
+    if inv and inv.user_id and inv.user_id != current_user.id:
+        logger.warning(
+            "Security violation: User %s attempted to quarantine message %s owned by user %s",
+            current_user.id, message_id, inv.user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You do not own this email investigation.",
+        )
+
+    res = await session.quarantine_message(message_id, destination=destination)
+
+    # If associated investigation exists, update case_status to CONTAINED
+    if inv:
+        inv.case_status = "CONTAINED"
+        inv.severity = "HIGH"
+        notes = list(inv.notes or [])
+        notes.append({
+            "author": current_user.email,
+            "text": f"Gmail message quarantined to {res.get('label_name', 'Quarantine')} (Label ID: {res.get('label_id')}); removed from INBOX.",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        inv.notes = notes
+        db.commit()
+        db.refresh(inv)
+        res["investigation_id"] = inv.id
+        res["case_id"] = inv.case_id
+
+    return res
+
+
+@router.post("/api/v1/investigations/{investigation_id}/quarantine")
+@router.post("/api/investigations/{investigation_id}/quarantine")
+async def quarantine_investigation_email(
+    investigation_id: str,
+    destination: Optional[str] = Query(None, description="Target quarantine destination: 'quarantine' or 'spam'"),
+    current_user: User = Depends(get_required_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Quarantines the Gmail email corresponding to an analyzed investigation:
+    1. Identifies the exact Gmail message ID associated with that investigation.
+    2. Verifies that the currently authenticated user owns the investigation.
+    3. Uses that user's Gmail OAuth credentials.
+    4. Finds the Gmail user label named exactly 'Quarantine' (or creates it if missing).
+    5. Applies the label and removes the INBOX label via users.messages.modify.
+    6. Updates investigation status in MailShield to 'CONTAINED'.
+    7. Returns success confirmation to frontend.
+    """
+    from app.models.investigation import Investigation
+    inv = db.query(Investigation).filter(Investigation.id == investigation_id).first()
+    if not inv:
+        inv = db.query(Investigation).filter(Investigation.case_id == investigation_id).first()
+
+    if not inv:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Investigation '{investigation_id}' not found.",
+        )
+
+    if inv.user_id and inv.user_id != current_user.id:
+        logger.warning(
+            "Security violation: User %s attempted to quarantine investigation %s owned by %s",
+            current_user.id, inv.id, inv.user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You do not own this email investigation.",
+        )
+
+    # Extract Gmail message ID from original_filename (e.g. gmail_1a09de2da7154c7a.eml) or notes
+    message_id = None
+    orig_name = inv.original_filename or ""
+    if orig_name.startswith("gmail_"):
+        raw_id = orig_name[6:]
+        if raw_id.endswith(".eml"):
+            raw_id = raw_id[:-4]
+        message_id = raw_id
+    elif inv.notes:
+        for n in inv.notes:
+            if isinstance(n, dict) and n.get("gmail_message_id"):
+                message_id = n["gmail_message_id"]
+                break
+
+    if not message_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This investigation does not originate from an acquired Gmail message. "
+                "Only Gmail-acquired emails can be quarantined via the Gmail API."
+            ),
+        )
+
+    session = _require_gmail_session(current_user, db)
+    res = await session.quarantine_message(message_id, destination=destination)
+
+    # Update investigation record in MailShield
+    inv.case_status = "CONTAINED"
+    inv.severity = "HIGH"
+    notes = list(inv.notes or [])
+    notes.append({
+        "author": current_user.email,
+        "text": f"Email quarantined to {res.get('label_name', 'Quarantine')} (Label ID: {res.get('label_id')}); removed from INBOX.",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    inv.notes = notes
+    db.commit()
+    db.refresh(inv)
+
+    res["investigation_id"] = inv.id
+    res["case_id"] = inv.case_id
+    return res
 
 
 @router.post("/api/v1/gmail/release/{message_id}")
@@ -353,7 +481,21 @@ async def release_gmail_message(
 ):
     """Releases a quarantined Gmail message back to inbox (current user only)."""
     session = _require_gmail_session(current_user, db)
-    return await session.release_message(message_id)
+    res = await session.release_message(message_id)
+
+    # Restore investigation status if exists
+    from app.models.investigation import Investigation
+    inv = db.query(Investigation).filter(
+        (Investigation.original_filename == f"gmail_{message_id}.eml") |
+        (Investigation.id == message_id)
+    ).first()
+    if inv and inv.user_id == current_user.id:
+        inv.case_status = "OPEN"
+        db.commit()
+        res["investigation_id"] = inv.id
+        res["case_id"] = inv.case_id
+
+    return res
 
 
 @router.post("/api/v1/gmail/disconnect")

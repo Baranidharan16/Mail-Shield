@@ -10,20 +10,53 @@ import {
   Cpu,
   Brain,
   Search,
+  Lock,
 } from "lucide-react";
 import type { MailShieldAnalysisResponse } from "../types/investigation";
 import ThreatGauge from "./ThreatGauge";
 import type { Level } from "./Badges";
+import { quarantineInvestigation } from "../api/client";
+import { QuarantineConfirmModal } from "./QuarantineConfirmModal";
+import { useState } from "react";
 
 interface Props {
   data: MailShieldAnalysisResponse;
   onReset: () => void;
   onViewDetails?: () => void;
+  investigationId?: string;
 }
 
-export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails }: Props) {
+export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails, investigationId }: Props) {
   const isPhishing = data.ml.prediction.toLowerCase() === "phishing";
   const riskLevel = data.risk.level as Level;
+
+  const [isQuarantineModalOpen, setIsQuarantineModalOpen] = useState(false);
+  const [quarantineState, setQuarantineState] = useState<"idle" | "loading" | "success" | "failed">("idle");
+  const [quarantineFeedback, setQuarantineFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  async function handleConfirmQuarantine() {
+    const targetId = investigationId || data.analysis_id;
+    if (!targetId) return;
+    setQuarantineState("loading");
+    setQuarantineFeedback(null);
+    try {
+      const res = await quarantineInvestigation(targetId);
+      setQuarantineState("success");
+      setQuarantineFeedback({
+        type: "success",
+        text: `Email successfully isolated under ${res.label_name || "Quarantine"} in Gmail and removed from INBOX.`,
+      });
+      setIsQuarantineModalOpen(false);
+    } catch (err: any) {
+      setQuarantineState("failed");
+      const detail = err?.response?.data?.detail || "Quarantine action failed via Gmail API.";
+      setQuarantineFeedback({
+        type: "error",
+        text: `QUARANTINE FAILED: ${detail}`,
+      });
+      setIsQuarantineModalOpen(false);
+    }
+  }
 
   // Format NLP threat patterns for display
   const threatPatterns = [
@@ -58,7 +91,34 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails }:
             </h2>
           </div>
 
-          <div className="flex items-center gap-2 self-start md:self-auto">
+          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+            {(investigationId || data.analysis_id) && (
+              quarantineState === "success" ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold font-mono tracking-wider">
+                  <Lock className="h-3.5 w-3.5 text-emerald-400" /> QUARANTINED
+                </span>
+              ) : (
+                <button
+                  onClick={() => setIsQuarantineModalOpen(true)}
+                  disabled={quarantineState === "loading"}
+                  className="btn-glass text-xs py-2 px-3 flex items-center gap-1.5 border-red-500/40 bg-red-600/20 hover:bg-red-600/30 text-red-300 cursor-pointer disabled:opacity-60 font-semibold"
+                >
+                  {quarantineState === "loading" ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Quarantining...
+                    </>
+                  ) : quarantineState === "failed" ? (
+                    <>
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-400" /> QUARANTINE FAILED (RETRY)
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-3.5 w-3.5 text-red-400" /> QUARANTINE
+                    </>
+                  )}
+                </button>
+              )
+            )}
             <button
               onClick={onReset}
               className="btn-glass text-xs py-2 px-3 flex items-center gap-1.5 text-lab-300 hover:text-white"
@@ -75,6 +135,31 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails }:
             )}
           </div>
         </div>
+
+        {quarantineFeedback && (
+          <div
+            className={`mb-4 p-3 rounded-xl border flex items-center justify-between text-xs font-mono animate-fade-in ${
+              quarantineFeedback.type === "success"
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                : "bg-red-500/10 border-red-500/30 text-red-300"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {quarantineFeedback.type === "success" ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+              )}
+              <span>{quarantineFeedback.text}</span>
+            </div>
+            <button
+              onClick={() => setQuarantineFeedback(null)}
+              className="text-slate-400 hover:text-white p-1 cursor-pointer"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Sender / Routing Details */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -144,7 +229,7 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails }:
               <span className="font-mono tracking-wider text-[11px] uppercase flex items-center gap-1.5">
                 <Brain className="h-3.5 w-3.5 text-blue-400" /> ML PHISHING MODEL
               </span>
-              <span className="text-[10px] text-lab-500 font-mono">mailshield_ml.keras</span>
+              <span className="text-[10px] text-lab-500 font-mono">Mailshield_phishing_model_v2.keras</span>
             </div>
 
             <div className="text-center py-3">
@@ -283,7 +368,7 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails }:
               MailShield NLP Threat-Pattern Classifier
             </h3>
           </div>
-          <span className="text-xs text-lab-500 font-mono">mailshield_nlp.keras · 6 Dimensions</span>
+          <span className="text-xs text-lab-500 font-mono">MailShield_NLP_v2.keras · 6 Dimensions</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -408,6 +493,16 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails }:
           <span>{data.ai_reasoning.confidence_note}</span>
         </div>
       </div>
+
+      {/* Quarantine Confirmation Modal */}
+      <QuarantineConfirmModal
+        isOpen={isQuarantineModalOpen}
+        onClose={() => setIsQuarantineModalOpen(false)}
+        onConfirm={handleConfirmQuarantine}
+        loading={quarantineState === "loading"}
+        subject={data.email.subject || "No Subject"}
+        sender={data.email.sender || undefined}
+      />
     </div>
   );
 }

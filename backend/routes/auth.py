@@ -21,7 +21,11 @@ from schemas.auth import (
     UserPublicProfile,
     UserRegisterRequest,
 )
-from services.auth_service import create_access_token, hash_password, verify_password
+from services.auth_service import (
+    create_access_token,
+    hash_password_async,
+    verify_password_async,
+)
 from utils.auth_deps import get_current_user, get_optional_current_user
 
 logger = logging.getLogger("mailshield.routes.auth")
@@ -66,8 +70,9 @@ async def register_user(payload: UserRegisterRequest, db: Session = Depends(get_
             detail="An account with this email address already exists. Please log in.",
         )
 
-    # Hash password with Argon2
-    hashed = hash_password(payload.password)
+    # Hash password with Argon2 in a thread pool — avoids blocking the async
+    # event loop (Argon2 is CPU-bound and can take 1-3 seconds even at low cost).
+    hashed = await hash_password_async(payload.password)
 
     user = User(
         name=payload.name.strip(),
@@ -99,7 +104,9 @@ async def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     email_clean = payload.email.lower().strip()
     user = db.query(User).filter(User.email == email_clean).first()
 
-    if not user or not verify_password(payload.password, user.password_hash):
+    # Verify password in a thread pool — avoids blocking the async event loop.
+    password_ok = user and await verify_password_async(payload.password, user.password_hash)
+    if not password_ok:
         logger.warning("Failed login attempt for email: %s", email_clean)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -678,8 +678,17 @@ export async function analyzeGmailMessage(messageId: string): Promise<{
   return data;
 }
 
-export async function quarantineGmailMessage(messageId: string): Promise<any> {
-  const { data } = await apiClient.post(`/gmail/quarantine/${messageId}`);
+export async function quarantineGmailMessage(messageId: string, destination?: string): Promise<any> {
+  const { data } = await apiClient.post(`/gmail/quarantine/${messageId}`, null, {
+    params: destination ? { destination } : undefined,
+  });
+  return data;
+}
+
+export async function quarantineInvestigation(investigationId: string, destination?: string): Promise<any> {
+  const { data } = await apiClient.post(`/investigations/${investigationId}/quarantine`, null, {
+    params: destination ? { destination } : undefined,
+  });
   return data;
 }
 

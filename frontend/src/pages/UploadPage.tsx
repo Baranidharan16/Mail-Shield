@@ -147,6 +147,7 @@ export default function UploadPage() {
       <div className="p-6 md:p-8 max-w-4xl mx-auto">
         <MailShieldLiveAnalysis
           data={mailshieldAnalysis}
+          investigationId={investigationId || undefined}
           onReset={() => {
             setMailshieldAnalysis(null);
             setFile(null);

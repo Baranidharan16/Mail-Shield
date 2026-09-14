@@ -1,8 +1,18 @@
+from __future__ import annotations
 """
 MAILSHIELD - AI-Powered Email Forensic Intelligence Platform
 Unified Backend FastAPI Application
 """
-from __future__ import annotations
+# ── CRITICAL: This MUST be imported before ANY keras/tensorflow import. ────────
+# Patches builtins.open to default to UTF-8 so Keras can read the
+# TextVectorization vocabulary file inside the .keras zip without crashing with:
+#   ValueError: 'charmap' codec can't decode byte 0x9d ...
+# Setting os.environ["PYTHONUTF8"] mid-process does NOT work (interpreter
+# encoding is locked at startup). This builtins.open patch is the only
+# reliable in-process fix, and it must run before any `import keras`.
+import mailshield_codec_fix  # noqa: F401  (side-effect import)
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 import logging
 import os
@@ -52,16 +62,23 @@ async def lifespan(app: FastAPI):
         ml_service = get_ml_service()
         ml_service.load()
         logger.info("MailShield ML Phishing Detection Model loaded into RAM.")
-    except Exception as e:
-        logger.error("Failed to load ML Model: %s", e)
+    except Exception:
+        # Log the FULL traceback so the exact Keras error is visible in logs.
+        logger.exception(
+            "STARTUP FAILURE: Could not load ML model. "
+            "Email analysis will be unavailable until this is resolved."
+        )
 
     # Load NLP Model (mailshield_nlp.keras)
     try:
         nlp_service = get_nlp_service()
         nlp_service.load()
         logger.info("MailShield NLP Threat-Pattern Model loaded into RAM.")
-    except Exception as e:
-        logger.error("Failed to load NLP Model: %s", e)
+    except Exception:
+        logger.exception(
+            "STARTUP FAILURE: Could not load NLP model. "
+            "Threat-pattern classification will be unavailable until this is resolved."
+        )
 
     # Initialize legacy database if available
     try:

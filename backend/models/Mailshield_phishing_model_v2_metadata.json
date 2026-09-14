@@ -1,0 +1,34 @@
+{
+  "model_name": "MailShield Phishing Detector",
+  "version": "v2",
+  "framework": "TensorFlow/Keras",
+  "tensorflow_version": "2.20.0",
+  "keras_version": "3.13.2",
+  "max_tokens": 20000,
+  "actual_vocabulary_size": 20000,
+  "sequence_length": 300,
+  "embedding_dim": 128,
+  "lstm_units": 64,
+  "best_threshold": 0.35,
+  "accuracy": 0.9932397959183673,
+  "precision": 0.9942063559683053,
+  "recall": 0.9922619047619048,
+  "f1": 0.9932331787036643,
+  "roc_auc": 0.9996016995233468,
+  "train_samples": 109758,
+  "validation_samples": 23520,
+  "test_samples": 23520,
+  "label_mapping": {
+    "0": "legitimate",
+    "1": "phishing"
+  },
+  "source_datasets": [
+    "CEAS_08.csv",
+    "Enron.csv",
+    "Ling.csv",
+    "Nazario.csv",
+    "Nigerian_Fraud.csv",
+    "SpamAssasin.csv",
+    "phishing_email.csv"
+  ]
+}
