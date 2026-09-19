@@ -15,6 +15,7 @@ import RegisterPage from "./pages/RegisterPage";
 import ProfilePage from "./pages/ProfilePage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { ForgotPasswordPage, ResetPasswordPage } from "./pages/PasswordResetPages";
+import { PublicPrivacyPolicyPage, TermsPage } from "./pages/PublicLegalPages";
 import { ChatProvider } from "./context/ChatContext";
 import { AuthProvider } from "./context/AuthContext";
 
@@ -29,6 +30,9 @@ export default function App() {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            {/* Public legal pages (linked from the Google OAuth consent screen) */}
+            <Route path="/privacy-policy" element={<PublicPrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
 
             {/* Protected MailShield Workspaces */}
             <Route element={<ProtectedRoute />}>

@@ -196,6 +196,10 @@ export default function LoginPage() {
 
         {/* Security badge footer */}
         <div className="mt-6 text-center text-[10px] font-mono text-lab-600 flex items-center justify-center gap-2">
+          <Link to="/privacy-policy" className="hover:text-lab-400">PRIVACY</Link>
+          <span>•</span>
+          <Link to="/terms" className="hover:text-lab-400">TERMS</Link>
+          <span>•</span>
           <span>ARGON2 HASHED</span>
           <span>•</span>
           <span>JWT BEARER PROTECTED</span>

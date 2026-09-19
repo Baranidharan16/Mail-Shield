@@ -14,14 +14,14 @@ function Block({ icon: Icon, title, children }: { icon: typeof Shield; title: st
   );
 }
 
-export const PrivacyPage: React.FC = () => {
+export const PrivacyPage: React.FC<{ publicView?: boolean }> = ({ publicView = false }) => {
   const [summary, setSummary] = useState<Record<string, any> | null>(null);
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = () => getMyDataSummary().then(setSummary).catch(() => setSummary(null));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { if (!publicView) load(); }, [publicView]);
 
   async function erase() {
     setBusy(true);
@@ -50,7 +50,7 @@ export const PrivacyPage: React.FC = () => {
         <p className="text-xs text-lab-400 mt-1">This describes what the running system actually does (not a template).</p>
       </div>
 
-      {summary && (
+      {!publicView && summary && (
         <div className="glass-section p-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
           <div><div className="text-xl font-data text-white">{String(summary.investigations)}</div><div className="text-[10px] text-lab-500">YOUR INVESTIGATIONS</div></div>
           <div><div className="text-xl font-data text-white">{String(summary.processed_emails)}</div><div className="text-[10px] text-lab-500">MONITORED EMAILS</div></div>
@@ -91,7 +91,13 @@ export const PrivacyPage: React.FC = () => {
         <p>MailShield is a defensive tool for analysing e-mails you are authorised to access. It does not access accounts without OAuth consent, deploy malware, probe or attack third-party systems, or claim to identify a person from an IP address. "Origin tracing" means describing infrastructure observed in the e-mail's own headers, always labelled OBSERVED / INFERRED / UNKNOWN.</p>
       </Block>
 
-      <div className="glass-section p-5 border border-crimson-signal/30">
+      {publicView && (
+        <Block icon={Mail} title="Contact">
+          <p>Questions or deletion requests: baranidharanboopathy66@gmail.com. Signed-in users can delete all their data themselves from the in-app Privacy page.</p>
+        </Block>
+      )}
+
+      {!publicView && <div className="glass-section p-5 border border-crimson-signal/30">
         <div className="flex items-center gap-2 mb-2"><Trash2 className="w-4 h-4 text-crimson-glow" /><h2 className="text-sm font-bold text-white">Delete all my forensic data</h2></div>
         <p className="text-xs text-lab-400 mb-3">Removes all your investigations, evidence files, monitor records and stored Gmail tokens. Your login account remains. This cannot be undone. Type <b>DELETE</b> to confirm.</p>
         <div className="flex gap-2">
@@ -102,7 +108,7 @@ export const PrivacyPage: React.FC = () => {
           </button>
         </div>
         {msg && <div className="text-xs text-lab-200 mt-2">{msg}</div>}
-      </div>
+      </div>}
     </div>
   );
 };
