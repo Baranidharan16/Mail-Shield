@@ -5,7 +5,6 @@ import {
   Search,
   RefreshCw,
   Lock,
-  Radio,
   Zap,
   LogOut,
   CheckCircle2,
@@ -18,7 +17,6 @@ import {
   analyzeGmailMessage,
   quarantineGmailMessage,
   releaseGmailMessage,
-  connectGmailSandbox,
   disconnectGmail,
   type GmailMessageItem,
   type GmailStatusResponse,
@@ -74,21 +72,10 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
         window.location.href = authorization_url;
       }
     } catch (err: any) {
-      onError("Failed to initiate Google OAuth. You can use the Sandbox Mailbox button below.");
+      onError("Could not start Google sign-in. Please try again (if Google shows 'access blocked', ask the admin to add your Gmail as a test user).");
     }
   };
 
-  const handleConnectSandbox = async () => {
-    setLoading(true);
-    try {
-      await connectGmailSandbox();
-      await fetchStatusAndMessages();
-    } catch (err: any) {
-      onError("Failed to connect sandbox mailbox.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDisconnect = async () => {
     setLoading(true);
@@ -197,8 +184,9 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
         <div className="max-w-md mx-auto">
           <h3 className="text-base font-bold text-white mb-2">Connect Gmail for Live Forensics</h3>
           <p className="text-xs text-lab-400 leading-relaxed">
-            Acquire raw RFC822 messages, perform real-time AI & header forensics, anchor SHA-256 evidence
-            on Hyperledger Fabric, and apply autonomous quarantine isolation.
+            Sign in with Google to let MailShield read your inbox. New mail is analysed automatically
+            (ML + NLP + header forensics) and every result is hash-anchored for integrity. Your mailbox is
+            only changed if you click Quarantine.
           </p>
         </div>
 
@@ -210,13 +198,6 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
             <Mail className="h-4 w-4" />
             Connect Google OAuth
           </button>
-          <button
-            onClick={handleConnectSandbox}
-            className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all"
-          >
-            <Radio className="h-4 w-4 text-phosphor-400 animate-pulse" />
-            Launch Live Inbox (Sandbox)
-          </button>
         </div>
 
         <div className="p-3 bg-black/30 rounded-xl border border-white/5 max-w-md mx-auto text-left text-[11px] font-mono text-slate-400">
@@ -224,7 +205,7 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
             MailShield Zero-Password OAuth Protocol
           </div>
-          <div>• Scopes: read raw message bytes, modify quarantine labels</div>
+          <div>• Scopes: read messages (analysis); modify labels only when you quarantine</div>
           <div>• Password never stored or requested</div>
           <div>• Direct RFC822 byte acquisition for SHA-256 hashing</div>
         </div>

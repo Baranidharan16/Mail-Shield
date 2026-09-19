@@ -203,6 +203,13 @@ async def google_auth_callback(
     try:
         await save_user_gmail_tokens(user_id=user_id, tokens=tokens, db=db)
         logger.info("Gmail OAuth tokens securely stored for user_id=%s", user_id)
+        # Start real-time monitoring immediately (don't wait for the next poll cycle).
+        try:
+            import asyncio
+            from services.email_monitor import process_user
+            asyncio.get_running_loop().create_task(process_user(user_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not start immediate monitor pass: %s", exc)
     except Exception as e:
         logger.error("Failed to store Gmail tokens: %s", e)
         return RedirectResponse(url=f"{return_url}?oauth_error=storage_failed")
@@ -538,18 +545,3 @@ async def disconnect_gmail_account(
     return {"status": "DISCONNECTED", "user_id": current_user.id}
 
 
-# ── Backward-compat stub (deprecated, returns 401) ───────────────────────────
-
-@router.post("/api/v1/gmail/connect-sandbox")
-@router.post("/api/gmail/connect-sandbox")
-async def connect_sandbox_deprecated(
-    current_user: User = Depends(get_required_current_user),
-):
-    """DEPRECATED: Sandbox mode removed. Connect via /auth/google OAuth flow."""
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail=(
-            "Sandbox mode has been removed for security. "
-            "Please use the real Gmail OAuth flow at /auth/google."
-        ),
-    )

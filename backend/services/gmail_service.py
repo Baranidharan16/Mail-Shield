@@ -221,12 +221,8 @@ class UserGmailSession:
         Lists emails from user's inbox with sender, subject, snippet.
         Returns real Gmail API data only — no sandbox/fake messages.
         """
-        if self._quarantine_label_id is None:
-            try:
-                self._quarantine_label_id = await self.get_or_create_label("Quarantine")
-            except Exception as ex:
-                logger.warning("Could not pre-resolve Quarantine label ID: %s", ex)
-
+        # Listing is read-only: the Quarantine label is only created when the
+        # user actually quarantines a message (never just by viewing the inbox).
         params: Dict[str, Any] = {"maxResults": max_results, "labelIds": "INBOX"}
         if query:
             params["q"] = query

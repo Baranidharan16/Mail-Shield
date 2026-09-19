@@ -156,7 +156,6 @@ It ingests raw email artifacts (`.eml`, `.msg`), parses deep RFC 5322 header hie
 ├── docker-compose.yml              # Containerized multi-service deployment
 ├── run.py                          # Unified launcher for Backend + Frontend
 ├── start.bat                       # Windows double-click launcher
-├── test_suite.py                   # Automated end-to-end testing script
 └── README.md                       # Comprehensive documentation
 ```
 
@@ -254,76 +253,41 @@ See **[docs/FORENSIC_PLATFORM_V2.md](docs/FORENSIC_PLATFORM_V2.md)** for the pip
 6. Gmail OAuth locally: add `http://localhost:8000/auth/google/callback` as an authorized
    redirect URI in Google Cloud and set the same value in `GOOGLE_REDIRECT_URI`.
 
-## ☁️ Production Deployment (GitHub → Vercel + Render + PostgreSQL)
+## ☁️ Production Deployment (GitHub → Render: one service + PostgreSQL)
+
+Live: **https://mailshield-sih.onrender.com**
 
 ```
-Browser (any laptop/phone) ──HTTPS──▶ Vercel  (React SPA, sih-email-forensics-full.vercel.app)
-                                         │  vercel.json rewrites /api/*  and /auth/google/*
-                                         ▼
-                                     Render  (FastAPI, sih-email-forensics-full-1.onrender.com)
-                                         │
-                            ┌────────────┴────────────┐
-                            ▼                         ▼
-               Render PostgreSQL (ONE shared DB)   Google OAuth / Gmail API
+Browser (any laptop/phone) ──HTTPS──▶ Render web service "mailshield-sih" (Docker)
+                                        ├─ React SPA (built into the image)
+                                        ├─ FastAPI API  (/api/*, /auth/google/*)
+                                        ├─ Real-time Gmail monitor (background task)
+                                        └─ Render PostgreSQL "mailshield-db" (ONE shared database)
 ```
+Frontend and API share one origin, so login cookies are first-party and there is no CORS setup to get wrong.
 
-The browser only ever talks to the Vercel domain; Vercel forwards API calls to Render. The
-login cookie is therefore first-party (works in Safari/Chrome/Firefox, no CORS issues), and
-every device uses the same backend and the same database.
-
-### 1. Database (Render PostgreSQL)
-Render → **New → PostgreSQL** (name `mailshield-db`) → copy the **Internal Database URL**.
-Tables are created automatically on first start. (Neon/Supabase also work — use their URL.)
-Note: Render's free PostgreSQL expires after 30 days; upgrade or use Neon for long-term storage.
-
-### 2. Backend (Render Web Service)
-Either **New → Blueprint** (uses `render.yaml`, creates DB + service), or configure the existing
-service `sih-email-forensics-full-1` → **Settings**:
-
-| Setting | Value |
-|---|---|
-| Root Directory | `backend` |
-| Runtime | Python 3 (`backend/.python-version` pins 3.12) |
-| Build Command | `pip install --upgrade pip && pip install -r requirements.txt` |
-| Start Command | `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"` |
-| Health Check Path | `/api/v1/health` |
-| Auto-Deploy | Yes (every push to `main`) |
-
-Environment variables (Render → Environment):
+### Deploy / update
+* Render → **New → Blueprint** → this repo (uses `render.yaml` + root `Dockerfile`). Every `git push` to `main` redeploys automatically.
+* Render → mailshield-sih → **Environment** (secrets are entered here, never committed):
 
 | Key | Value |
 |---|---|
-| `APP_ENV` | `production` |
-| `DATABASE_URL` | PostgreSQL URL from step 1 |
-| `JWT_SECRET_KEY` | random 48+ chars (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) |
-| `FRONTEND_URL` | `https://sih-email-forensics-full.vercel.app` |
-| `CORS_ORIGINS` | `https://sih-email-forensics-full.vercel.app` |
-| `LOAD_ML_MODELS` | `false` on the free 512 MB plan, `true` on ≥2 GB |
-| `FERNET_KEY` | Fernet key (see `.env.example`) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from Google Cloud |
-| `GOOGLE_REDIRECT_URI` | `https://sih-email-forensics-full-1.onrender.com/auth/google/callback` |
-| `GEMINI_API_KEY`, `SARVAM_API_KEY` | optional |
-| `UPLOAD_STORAGE_DIR` | `/tmp/evidence` (or a Render Disk mount path) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from the same Google OAuth client |
+| `GOOGLE_REDIRECT_URI` | `https://mailshield-sih.onrender.com/auth/google/callback` |
+| `GEMINI_API_KEY` | AI explanations (optional) |
+| `SARVAM_API_KEY` | voice assistant (optional) |
+| `FERNET_KEY` | optional; OAuth tokens are always encrypted (derived key if unset) |
 
-Check: `https://sih-email-forensics-full-1.onrender.com/api/v1/health` → `{"status":"ok","database":"ok","database_engine":"postgresql",...}`.
+Everything else (`APP_ENV`, `DATABASE_URL`, `JWT_SECRET_KEY`, `FRONTEND_URL`, `CORS_ORIGINS`, monitor/retention settings) is set by `render.yaml`.
 
-### 3. Frontend (Vercel)
-Vercel project → **Settings → General**: Root Directory = `frontend`, Framework = Vite
-(`frontend/vercel.json` sets build `npm run build`, output `dist`, SPA fallback and the API
-rewrites). No secret environment variables are needed; optionally set
-`VITE_API_BASE_URL=/api/v1`. Pushes to `main` deploy automatically.
-If the Render URL ever changes, update the three `destination` URLs in `frontend/vercel.json`.
+### Google OAuth (Google Auth Platform)
+* **Clients →** Authorized JavaScript origins: `https://mailshield-sih.onrender.com`, `http://localhost:5173`, `http://localhost:8000`; Authorized redirect URIs: `https://mailshield-sih.onrender.com/auth/google/callback`, `http://localhost:8000/auth/google/callback`.
+* **Branding →** home page `https://mailshield-sih.onrender.com`, privacy policy `/privacy-policy`, terms `/terms`, authorized domain `mailshield-sih.onrender.com`.
+* **Data Access →** scopes `userinfo.email`, `userinfo.profile`, `gmail.readonly`, `gmail.modify`.
+* **Audience →** keep *Testing* and add every Gmail that will connect under **Test users** (Gmail scopes are "restricted"; public production requires Google verification + a security assessment).
 
-### 4. Google OAuth
-Google Cloud Console → APIs & Services → Credentials → your OAuth client:
-- Authorized JavaScript origins: `https://sih-email-forensics-full.vercel.app`, `http://localhost:5173`
-- Authorized redirect URIs: `https://sih-email-forensics-full-1.onrender.com/auth/google/callback`,
-  `http://localhost:8000/auth/google/callback`
-- While the consent screen is in "Testing", add every Gmail tester under **Test users**.
-
-### 5. Verify
-Open the Vercel site on two devices: register on one, sign in with the same account on the
-other; register a second user and confirm neither sees the other's investigations.
+### Verify
+`https://mailshield-sih.onrender.com/api/v1/health` → `"database":"ok","database_engine":"postgresql"`. Then register, connect Gmail, and watch the dashboard's *Real-time Email Threat Monitor*.
 
 ## 🌐 Service Access Endpoints
 
@@ -339,7 +303,7 @@ other; register a second user and confirm neither sees the other's investigation
 
 Run the automated end-to-end test suite:
 ```bash
-python test_suite.py
+cd backend && python -m pytest tests -q
 ```
 
 Run backend unit tests:

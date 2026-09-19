@@ -9,20 +9,14 @@ import {
   Shield,
   Zap,
   Lock,
-  Play,
-  Layers,
   Brain,
   Sparkles,
 } from "lucide-react";
 import {
   uploadEmail,
-  getInvestigation,
-  getDemoScenarios,
-  loadDemoScenario,
   analyzeEmailDirect,
   analyzeRawTextDirect,
   getModelStatus,
-  type DemoScenario,
 } from "../api/client";
 import type {
   InvestigationStatus,
@@ -48,15 +42,12 @@ export default function UploadPage() {
   const [rawSubject, setRawSubject] = useState("");
   const [status, setStatus] = useState<InvestigationStatus | "IDLE">("IDLE");
   const [error, setError] = useState<string | null>(null);
-  const [scenarios, setScenarios] = useState<DemoScenario[]>([]);
-  const [loadingScenarioId, setLoadingScenarioId] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
   const [mailshieldAnalysis, setMailshieldAnalysis] = useState<MailShieldAnalysisResponse | null>(null);
   const [investigationId, setInvestigationId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getDemoScenarios().then(setScenarios).catch(() => {});
     getModelStatus().then(setModelStatus).catch(() => {});
   }, []);
 
@@ -69,20 +60,6 @@ export default function UploadPage() {
     }
     setFile(f);
   }, []);
-
-  async function handleLoadScenario(scenarioId: string) {
-    try {
-      setLoadingScenarioId(scenarioId);
-      setStatus("QUEUED");
-      setError(null);
-      const res = await loadDemoScenario(scenarioId);
-      pollUntilDone(res.investigation_id);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || "Failed to load demo threat scenario.");
-      setStatus("IDLE");
-      setLoadingScenarioId(null);
-    }
-  }
 
   async function startAnalysis() {
     if (activeTab === "file" && !file) return;
@@ -110,32 +87,6 @@ export default function UploadPage() {
       setError(err?.response?.data?.detail || "Analysis failed. Confirm the MailShield backend is running.");
       setStatus("IDLE");
     }
-  }
-
-  async function pollUntilDone(id: string) {
-    const start = Date.now();
-    const poll = async (): Promise<void> => {
-      try {
-        const detail = await getInvestigation(id);
-        setStatus(detail.status);
-        if (detail.status === "COMPLETED" || detail.status === "FAILED") {
-          if (detail.status === "COMPLETED") {
-            navigate(`/investigations/${id}`);
-          } else {
-            setError(detail.error_message || "Analysis failed.");
-          }
-          return;
-        }
-      } catch {
-        // Continue polling
-      }
-      if (Date.now() - start > 30000) {
-        setError("Analysis is taking longer than expected. Check case history shortly.");
-        return;
-      }
-      setTimeout(poll, 500);
-    };
-    poll();
   }
 
   const isBusy = status === "QUEUED" || status === "PROCESSING";
@@ -384,71 +335,6 @@ export default function UploadPage() {
           <p className="text-[11px] text-lab-600 mt-5 border-t border-white/5 pt-4">
             Running the trained ML/NLP models and deterministic forensic analyzers.
           </p>
-        </div>
-      )}
-
-      {/* 1-Click SIH Threat Scenarios */}
-      {!isBusy && scenarios.length > 0 && (
-        <div className="mt-8 pt-6 border-t border-slate-800">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-white font-mono uppercase tracking-wider">
-              <Layers className="h-4 w-4 text-phosphor-400" />
-              Pre-Loaded Threat Scenarios (1-Click Pipeline Ingestion)
-            </div>
-            <span className="text-[11px] text-slate-500 font-mono">{scenarios.length} Scenarios</span>
-          </div>
-          <p className="text-xs text-slate-400 mb-4">
-            Ingest synthetic samples directly through the full pipeline to inspect varying threat vectors.
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {scenarios.map((sc) => {
-              const isLoadingThis = loadingScenarioId === sc.id;
-              const isCrit = sc.severity === "CRITICAL";
-              const isSafe = sc.threat_class === "LEGITIMATE_SAFE";
-              return (
-                <div
-                  key={sc.id}
-                  onClick={() => !loadingScenarioId && handleLoadScenario(sc.id)}
-                  className={`p-3 rounded-lg border text-xs cursor-pointer transition-all ${
-                    isLoadingThis
-                      ? "bg-phosphor-500/10 border-phosphor-500/50"
-                      : "bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-800/40"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-medium text-white truncate">{sc.title}</div>
-                    <span
-                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${
-                        isSafe
-                          ? "bg-phosphor-500/10 text-phosphor-300 border-phosphor-500/30"
-                          : isCrit
-                          ? "bg-crimson-signal/15 text-crimson-300 border-crimson-signal/30"
-                          : "bg-amber-signal/15 text-amber-300 border-amber-signal/30"
-                      }`}
-                    >
-                      {sc.threat_class}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">{sc.description}</p>
-                  <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                    <span>Target: {sc.expected_score}/100</span>
-                    <span className="text-phosphor-400 flex items-center gap-1 font-sans font-medium">
-                      {isLoadingThis ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" /> Ingesting...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3 w-3 fill-phosphor-400" /> Run Analysis
-                        </>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
       )}
 

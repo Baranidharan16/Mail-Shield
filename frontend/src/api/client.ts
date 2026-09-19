@@ -569,17 +569,6 @@ export interface SystemPerformance {
   };
 }
 
-export interface DemoScenario {
-  id: string;
-  title: string;
-  threat_class: string;
-  severity: string;
-  expected_score: number;
-  sender: string;
-  subject: string;
-  description: string;
-}
-
 export interface CampaignCase {
   investigation_id: string;
   case_id: string;
@@ -635,23 +624,6 @@ export async function getOriginTrace(investigationId: string): Promise<OriginTra
 
 export async function getSystemPerformance(): Promise<SystemPerformance> {
   const { data } = await apiClient.get<SystemPerformance>("/system/performance");
-  return data;
-}
-
-export async function getDemoScenarios(): Promise<DemoScenario[]> {
-  const { data } = await apiClient.get<DemoScenario[]>("/system/demo-scenarios");
-  return data;
-}
-
-export async function loadDemoScenario(scenarioId: string): Promise<{
-  status: string;
-  scenario_id: string;
-  case_id: string;
-  investigation_id: string;
-  threat_class: string;
-  subject: string;
-}> {
-  const { data } = await apiClient.post("/system/load-scenario", { scenario_id: scenarioId });
   return data;
 }
 
@@ -819,11 +791,6 @@ export async function quarantineInvestigation(investigationId: string, destinati
 
 export async function releaseGmailMessage(messageId: string): Promise<any> {
   const { data } = await apiClient.post(`/gmail/release/${messageId}`);
-  return data;
-}
-
-export async function connectGmailSandbox(): Promise<{ status: string; email: string }> {
-  const { data } = await apiClient.post("/gmail/connect-sandbox");
   return data;
 }
 

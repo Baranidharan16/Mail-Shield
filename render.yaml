@@ -21,7 +21,7 @@ services:
       - key: FRONTEND_URL
         value: https://mailshield-sih.onrender.com
       - key: CORS_ORIGINS
-        value: https://mailshield-sih.onrender.com,https://sih-email-forensics-full.vercel.app
+        value: https://mailshield-sih.onrender.com
       - key: LOAD_ML_MODELS
         value: "false"
       - key: UPLOAD_STORAGE_DIR

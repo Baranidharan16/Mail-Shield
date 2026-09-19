@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.database.session import get_db
-from app.forensic.demo_scenarios import DEMO_SCENARIOS, get_scenario_by_id
 from app.intel.global_correlation import get_global_campaigns_list, get_global_threat_graph
 from app.models.investigation import AuditLog, Investigation, BlockchainBlock
 from app.services import investigation_service
@@ -33,10 +32,6 @@ settings = get_settings()
 router = APIRouter(prefix="/system", tags=["system-observability"])
 
 _SERVER_START_TIME = time.time()
-
-
-class LoadScenarioRequest(BaseModel):
-    scenario_id: str
 
 
 class ActionRequest(BaseModel):
@@ -106,66 +101,6 @@ def get_system_performance(db: Session = Depends(get_db), current_user: User = D
             "memory_usage_mb": 128.4,
             "error_rate_percent": 0.0,
         },
-    }
-
-
-@router.get("/demo-scenarios")
-def list_demo_scenarios():
-    """Return catalog of 10 pre-loaded SIH threat test cases."""
-    return [
-        {
-            "id": s["id"],
-            "title": s["title"],
-            "threat_class": s["threat_class"],
-            "severity": s["severity"],
-            "expected_score": s["expected_score"],
-            "sender": s["sender"],
-            "subject": s["subject"],
-            "description": s["description"],
-        }
-        for s in DEMO_SCENARIOS
-    ]
-
-
-@router.post("/load-scenario")
-def load_and_analyze_scenario(
-    payload: LoadScenarioRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Ingest and execute full forensic analysis on a selected demonstration threat.
-    Returns the completed investigation details immediately.
-    """
-    scenario = get_scenario_by_id(payload.scenario_id)
-    if not scenario:
-        raise HTTPException(status_code=404, detail="Demo scenario not found")
-
-    # Ingest EML bytes
-    eml_bytes = scenario["eml_content"].encode("utf-8")
-    filename = f"{scenario['id']}.eml"
-
-    investigation = investigation_service.create_investigation(
-        db,
-        eml_bytes,
-        filename,
-        "message/rfc822",
-        created_by=current_user.email,
-        user_id=current_user.id,
-    )
-
-    # Run analysis synchronously for instant demo experience
-    investigation_service.run_analysis(db, investigation.id, eml_bytes)
-    db.refresh(investigation)
-
-
-    return {
-        "success": True,
-        "investigation_id": investigation.id,
-        "case_id": investigation.case_id,
-        "threat_class": investigation.classification,
-        "risk_score": investigation.risk_score,
-        "status": investigation.status,
     }
 
 

@@ -92,9 +92,6 @@ class Settings(BaseSettings):
     # --- Sarvam AI API key (for MailShield AI Assistant — voice STT & TTS) ---
     SARVAM_API_KEY: str = ""
 
-    # --- Phase 2: demo mode -------------------------------------------------
-    DEMO_MODE_ENABLED: bool = True
-
     # --- JWT Authentication ------------------------------------------------
     # JWT_SECRET_KEY MUST be set (>= 32 random chars) outside development.
     # Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"
