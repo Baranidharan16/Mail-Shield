@@ -80,8 +80,8 @@ async def model_status():
         ollama_status=ollama_status,
         autonomous_agent_status="ACTIVE" if os.getenv("GMAIL_MONITOR_ENABLED", "true").lower() != "false" else "NOT CONFIGURED",
         autonomous_agent_active=os.getenv("GMAIL_MONITOR_ENABLED", "true").lower() != "false",
-        ml_model_path=ml_service.model_path,
-        nlp_model_path=nlp_service.model_path,
+        ml_model_path="app/ml/artifacts/structured_model.joblib" if get_structured_model().is_available else ml_service.model_path,
+        nlp_model_path="app/ml/artifacts/text_model.joblib" if get_text_model().is_available else nlp_service.model_path,
         reasoning_provider=reasoning_type,
         gemini_configured=has_gemini,
     )

@@ -35,12 +35,21 @@ def _get_fernet():
         except Exception as e:
             logger.error("Invalid FERNET_KEY: %s — falling back to base64 obfuscation", e)
 
-    # Dev-only fallback: simple base64 (NOT secure — only for local dev)
-    logger.warning(
-        "FERNET_KEY not set. Using base64 obfuscation ONLY. "
-        "Set FERNET_KEY in production!"
-    )
-    return None
+    # No FERNET_KEY: derive a real Fernet key from the server's JWT secret so
+    # OAuth tokens are ALWAYS encrypted at rest (never plain base64).
+    # Note: rotating JWT_SECRET_KEY then requires users to reconnect Gmail.
+    try:
+        import hashlib
+        from cryptography.fernet import Fernet
+        from app.core.config import get_settings
+        seed = get_settings().JWT_SECRET_KEY
+        derived = base64.urlsafe_b64encode(hashlib.sha256(("mailshield-oauth-token-key|" + seed).encode()).digest())
+        _fernet = Fernet(derived)
+        logger.warning("FERNET_KEY not set — OAuth tokens are encrypted with a key derived from JWT_SECRET_KEY.")
+        return _fernet
+    except Exception as e:  # pragma: no cover
+        logger.error("Could not derive token-encryption key: %s", e)
+        return None
 
 
 def encrypt_token(plaintext: str) -> str:

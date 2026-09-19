@@ -418,7 +418,7 @@ def build_forensic_verdict(inv, integrity: Optional[dict] = None, enrich_domains
         if len(primary) < 5:
             primary.append(f'{v["vector"]}: {v["evidence"][0]}')
 
-    obs = "Not determined"
+    obs = "Not analysed (no threat indicators, deep forensics not triggered)"
     if origin and origin.get("determined"):
         parts = [origin["observed_ip"]["value"]]
         if origin["network"]["value"]:
