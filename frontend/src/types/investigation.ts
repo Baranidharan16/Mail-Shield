@@ -558,3 +558,116 @@ export interface ModelStatusResponse {
   gemini_configured: boolean;
 }
 
+
+// ── Forensic verdict (GET /investigations/{id}/verdict) ─────────────────────
+export interface VerdictField {
+  value: string | null;
+  status: "OBSERVED" | "INFERRED" | "UNKNOWN";
+  evidence?: string;
+}
+
+export interface VerdictHop {
+  hop: number;
+  received_header_number: number;
+  from_host: string | null;
+  by_host: string | null;
+  protocol: string | null;
+  ip: string | null;
+  timestamp: string | null;
+  reverse_dns: string | null;
+  asn: string | null;
+  network: string | null;
+  country: string | null;
+  city: string | null;
+  role: string;
+  infrastructure: string;
+  suspicious_indicators: string[];
+}
+
+export interface ForensicVerdict {
+  investigation_id: string;
+  case_id: string;
+  conclusion: {
+    status: "THREAT" | "SUSPICIOUS" | "SAFE";
+    headline: string;
+    threat_type: string;
+    risk_score: number;
+    ml_risk: number | null;
+    nlp_risk: number | null;
+    primary_evidence: string[];
+    observed_origin: string;
+    threat_path: string;
+    likely_attack_vectors: string[];
+    confidence: string;
+    confidence_value: number;
+    recommended_action: string;
+  };
+  forensic_agent: { triggered: boolean; triggers: string[]; rule: string };
+  models: {
+    ml: { available: boolean; label: string | null; threat_probability: number | null; model_version: string | null;
+          top_features: { feature: string; value: number; importance: number; meaning?: string }[] };
+    nlp: { available: boolean; label: string | null; threat_probability: number | null; model_version: string | null;
+           top_terms: { term: string; contribution: number }[];
+           suspicious_sentences: { sentence: string; phishing_probability: number }[];
+           pattern_indicators: { type: string; evidence: string; confidence: number; explanation: string }[] };
+  };
+  identity: {
+    from: string | null; display_name: string | null; reply_to: string | null; return_path: string | null;
+    sender_domain: string | null; reply_to_mismatch: boolean; return_path_mismatch: boolean;
+    display_name_impersonation: string[];
+    lookalike_domains: { domain: string; role: string; resembles: string; similarity: number }[];
+  };
+  authentication: {
+    spf: { result: string; meaning: string }; dkim: { result: string; meaning: string };
+    dmarc: { result: string; meaning: string };
+    arc: { present: boolean; chain_validation: string | null; meaning: string };
+  };
+  route: VerdictHop[];
+  origin: null | {
+    determined: boolean; message?: string; reason?: string; disclaimer: string; confidence: string;
+    confidence_reason?: string; location_caveat?: string | null; geo_lookup_note?: string | null; accuracy_note?: string | null;
+    observed_ip?: VerdictField; timestamp?: VerdictField; claimed_hostname?: VerdictField; reverse_dns?: VerdictField;
+    asn?: VerdictField; network?: VerdictField; country?: VerdictField; region?: VerdictField; city?: VerdictField;
+    coordinates?: VerdictField; timezone?: VerdictField; mail_provider?: VerdictField; infrastructure_type?: VerdictField;
+    sender_domain?: VerdictField;
+  };
+  attack_vectors: { key: string; vector: string; evidence: string[] }[];
+  threat_path: { stage: string; node: string; infrastructure: string }[];
+  domain_intelligence: {
+    domain: string; domain_age_days: number | null; registrar: string | null; newly_registered: boolean;
+    mx: string[]; dmarc_policy: string | null; rdap_reason?: string;
+  }[];
+  integrity: null | {
+    status: string;
+    what_is_on_the_ledger: string;
+    scope_note: string;
+    forensic_report?: { status: string; anchored_hash: string; current_hash: string | null };
+    evidence_file?: { status: string; note: string | null };
+    ledger?: { block_index: number; chain_intact: boolean };
+  };
+}
+
+export interface MonitorStatus {
+  server_monitor_enabled: boolean;
+  poll_interval_seconds: number;
+  gmail_connected: boolean;
+  enabled_for_you: boolean;
+  last_run_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  messages_processed: number;
+}
+
+export interface MonitoredEmail {
+  message_id: string;
+  status: string;
+  detail: string | null;
+  processed_at: string | null;
+  investigation_id: string | null;
+  case_id: string | null;
+  subject: string | null;
+  sender: string | null;
+  risk_score: number | null;
+  classification: string | null;
+  verdict: "THREAT" | "SUSPICIOUS" | "SAFE" | null;
+}

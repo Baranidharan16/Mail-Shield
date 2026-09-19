@@ -36,6 +36,16 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: GMAIL_MONITOR_ENABLED
+        value: "true"
+      - key: GMAIL_POLL_INTERVAL_SECONDS
+        value: "60"
+      - key: GMAIL_AUTO_QUARANTINE
+        value: "false"
+      - key: DATA_RETENTION_DAYS
+        value: "90"
 
 databases:
   - name: mailshield-db

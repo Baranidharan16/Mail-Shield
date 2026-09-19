@@ -1,42 +1,67 @@
 """
-Model A - structured feature classifier.
+Model A - structured (forensic-feature) classifier, v2.
 
-Baseline: RandomForestClassifier over the documented feature vector from
-`app/ml/features.py`. Random Forest was chosen (per the brief's suggested
-options) because it handles the mixed binary/continuous feature vector
-well without scaling, and gives usable feature-importance-based
-explanations for free - important for Part 4 (Explainable AI).
+Calibrated RandomForest over the documented feature vector from
+app/ml/features.py, trained on real phishing / legitimate corpora by
+`python -m app.ml.train`. Outputs a calibrated THREAT probability and the
+decision threshold chosen on the validation split (stored in
+structured_model.extra.json), so inference uses exactly the training-time
+feature list and threshold.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import Dict, List, Optional
 
 import joblib
 import numpy as np
 
-from app.ml.features import FEATURE_NAMES, FeatureVector
+from app.ml.features import FEATURE_DOCS, FEATURE_NAMES, FeatureVector
 from app.ml.model_provider import ARTIFACT_DIR, ModelMetadata, ModelPrediction, load_metadata
 
 _PATH_PREFIX = os.path.join(ARTIFACT_DIR, "structured_model")
-_MODEL_NAME = "structured_random_forest"
+
+
+def _load_extra(prefix: str) -> dict:
+    try:
+        with open(f"{prefix}.extra.json", "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
 
 
 class StructuredModel:
     def __init__(self) -> None:
         self._model = None
         self._metadata: Optional[ModelMetadata] = None
+        self._features: List[str] = FEATURE_NAMES
+        self.threshold: float = 0.5
+        self._importances: Optional[np.ndarray] = None
         self._load()
 
     def _load(self) -> None:
         model_path = f"{_PATH_PREFIX}.joblib"
-        if os.path.exists(model_path):
-            try:
-                self._model = joblib.load(model_path)
-                self._metadata = load_metadata(_PATH_PREFIX)
-            except Exception:
-                self._model = None
-                self._metadata = None
+        if not os.path.exists(model_path):
+            return
+        try:
+            self._model = joblib.load(model_path)
+            self._metadata = load_metadata(_PATH_PREFIX)
+            extra = _load_extra(_PATH_PREFIX)
+            self._features = extra.get("features") or FEATURE_NAMES
+            self.threshold = float(extra.get("threshold", 0.5))
+            imps = []
+            for cc in getattr(self._model, "calibrated_classifiers_", []):
+                est = getattr(cc, "estimator", None)
+                if est is not None and hasattr(est, "feature_importances_"):
+                    imps.append(est.feature_importances_)
+            if imps:
+                self._importances = np.mean(imps, axis=0)
+            elif hasattr(self._model, "feature_importances_"):
+                self._importances = self._model.feature_importances_
+        except Exception:
+            self._model = None
+            self._metadata = None
 
     @property
     def is_available(self) -> bool:
@@ -45,52 +70,33 @@ class StructuredModel:
     def predict(self, feature_vector: FeatureVector) -> ModelPrediction:
         if not self.is_available:
             return ModelPrediction(
-                available=False,
-                model_metadata=None,
-                predicted_label=None,
+                available=False, model_metadata=None, predicted_label=None,
                 note="Structured model artifact not found - train via `python -m app.ml.train`. "
                      "Fusion engine will proceed without this component.",
             )
-
-        x = np.array([feature_vector.as_ordered_list()])
+        values = feature_vector.as_dict()
+        row = [float(values.get(n, 0.0)) for n in self._features]
         try:
-            proba = self._model.predict_proba(x)[0]
-            classes = list(self._model.classes_)
-            probs = {cls: float(p) for cls, p in zip(classes, proba)}
-            predicted_label = classes[int(np.argmax(proba))]
-            confidence = float(max(proba))
-
-            # Interpretable contribution: feature importances weighted by this
-            # sample's own (nonzero) feature values - an approximate,
-            # per-instance interpretation (clearly labeled as such), not a
-            # precise SHAP-style decomposition.
-            importances = getattr(self._model, "feature_importances_", None)
-            top_features: List[Dict[str, object]] = []
-            if importances is not None:
-                contributions = []
-                for name, val, imp in zip(FEATURE_NAMES, feature_vector.as_ordered_list(), importances):
-                    if val > 0:
-                        contributions.append((name, val, float(imp)))
-                contributions.sort(key=lambda t: t[2], reverse=True)
-                top_features = [
-                    {"feature": name, "value": val, "importance": imp}
-                    for name, val, imp in contributions[:8]
-                ]
-
+            p_threat = float(self._model.predict_proba(np.array([row]))[0][1])
+            label = "PHISHING" if p_threat >= self.threshold else "LEGITIMATE"
+            top: List[Dict[str, object]] = []
+            if self._importances is not None:
+                contrib = [(n, v, float(i)) for n, v, i in zip(self._features, row, self._importances) if v > 0]
+                contrib.sort(key=lambda t: t[2], reverse=True)
+                top = [{"feature": n, "value": round(v, 3), "importance": round(i, 4),
+                        "meaning": FEATURE_DOCS.get(n, "")} for n, v, i in contrib[:8]]
             return ModelPrediction(
-                available=True,
-                model_metadata=self._metadata,
-                predicted_label=predicted_label,
-                class_probabilities=probs,
-                confidence=confidence,
-                top_features=top_features,
-                note="Feature importances are approximate per-instance interpretation, not exact SHAP values.",
+                available=True, model_metadata=self._metadata, predicted_label=label,
+                class_probabilities={"PHISHING": round(p_threat, 4), "LEGITIMATE": round(1 - p_threat, 4)},
+                confidence=round(max(p_threat, 1 - p_threat), 4),
+                top_features=top,
+                note=f"Calibrated threat probability; decision threshold {self.threshold:.2f} chosen on the "
+                     "validation split (max F1 at <=2% false-positive rate). Feature list is the importance-"
+                     "weighted set of this message's active features (approximate, not SHAP).",
             )
         except Exception as exc:  # noqa: BLE001
             return ModelPrediction(
-                available=False,
-                model_metadata=self._metadata,
-                predicted_label=None,
+                available=False, model_metadata=self._metadata, predicted_label=None,
                 note=f"Structured model inference failed ({type(exc).__name__}); fusion proceeds without it.",
             )
 
@@ -106,6 +112,5 @@ def get_structured_model() -> StructuredModel:
 
 
 def reset_structured_model_cache() -> None:
-    """Used by training scripts/tests after (re)writing the artifact to disk."""
     global _singleton
     _singleton = None

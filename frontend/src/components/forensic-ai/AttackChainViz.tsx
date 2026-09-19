@@ -30,8 +30,12 @@ export default function AttackChainViz({ data }: Props) {
       <div className="flex items-center gap-2 mb-1">
         <ShieldX size={14} style={{ color: "#e2483d" }} />
         <span className="text-xs font-mono font-bold tracking-widest" style={{ color: "#7c8fa0" }}>
-          ATTACK CHAIN — {data.classification.primary.toUpperCase()}
+          REFERENCE ATTACK CHAIN — {data.classification.primary.toUpperCase()}
         </span>
+      </div>
+      <div className="text-[10px]" style={{ color: "#7c8fa0" }}>
+        Typical kill-chain for this threat category (educational reference model, not observed evidence).
+        The observed path for this email is shown in the Forensic Verdict → Threat Path section.
       </div>
 
       {/* Chain nodes — horizontal scroll on narrow screens, vertical on mobile */}

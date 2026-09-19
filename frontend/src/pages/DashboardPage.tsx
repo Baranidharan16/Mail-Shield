@@ -14,6 +14,7 @@ import {
 import type { DashboardStats, AlertOut, MailShieldAnalysisResponse } from "../types/investigation";
 import { ClassificationBadge, SeverityBadge } from "../components/Badges";
 import LiveThreatFeed from "../components/LiveThreatFeed";
+import RealtimeMonitorPanel from "../components/RealtimeMonitorPanel";
 import MailShieldLiveAnalysis from "../components/MailShieldLiveAnalysis";
 import {
   ShieldAlert, ShieldCheck, Activity, Database, AlertTriangle,
@@ -439,6 +440,9 @@ export default function DashboardPage() {
           <LiveThreatFeed />
         </div>
       </div>
+
+      {/* Real-time Gmail monitor (server-side, automatic) */}
+      <RealtimeMonitorPanel />
 
       {/* Recent Alerts Table */}
       {recentAlerts.length > 0 && (

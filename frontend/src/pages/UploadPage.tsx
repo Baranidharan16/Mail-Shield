@@ -35,7 +35,7 @@ import { Mail } from "lucide-react";
 
 const STAGES: { status: InvestigationStatus; label: string; desc: string }[] = [
   { status: "QUEUED", label: "Evidence Received & Parsed", desc: "Headers, bodies, and URLs extracted" },
-  { status: "PROCESSING", label: "Dual Model & Forensic Inference", desc: "Running Keras ML, NLP threat patterns, and forensics" },
+  { status: "PROCESSING", label: "Dual Model & Forensic Inference", desc: "Running ML + NLP models, rule engine and header forensics" },
   { status: "COMPLETED", label: "Analysis Complete", desc: "Risk score and AI reasoning generated" },
 ];
 
@@ -193,7 +193,7 @@ export default function UploadPage() {
       {/* Feature Badges */}
       <div className="flex flex-wrap gap-2 mb-6">
         {[
-          "Keras ML Phishing Classifier",
+          "ML + NLP Phishing Classifiers",
           "6-Pattern NLP Threat Model",
           "RFC Header Forensics",
           "Deterministic Risk Engine",
@@ -382,7 +382,7 @@ export default function UploadPage() {
           </div>
 
           <p className="text-[11px] text-lab-600 mt-5 border-t border-white/5 pt-4">
-            Directly executing Keras neural networks and deterministic forensic analyzers.
+            Running the trained ML/NLP models and deterministic forensic analyzers.
           </p>
         </div>
       )}

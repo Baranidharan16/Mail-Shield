@@ -222,14 +222,14 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails, i
           </div>
         </div>
 
-        {/* Card 2: Keras ML Phishing Model */}
+        {/* Card 2: ML Phishing Model */}
         <div className="glass-section p-6 rounded-2xl flex flex-col justify-between border-white/10">
           <div>
             <div className="flex items-center justify-between text-xs text-lab-400 border-b border-white/5 pb-2.5 mb-4">
               <span className="font-mono tracking-wider text-[11px] uppercase flex items-center gap-1.5">
                 <Brain className="h-3.5 w-3.5 text-blue-400" /> ML PHISHING MODEL
               </span>
-              <span className="text-[10px] text-lab-500 font-mono">Mailshield_phishing_model_v2.keras</span>
+              <span className="text-[10px] text-lab-500 font-mono">ML threat model v2 (calibrated probability)</span>
             </div>
 
             <div className="text-center py-3">
@@ -368,7 +368,7 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails, i
               MailShield NLP Threat-Pattern Classifier
             </h3>
           </div>
-          <span className="text-xs text-lab-500 font-mono">MailShield_NLP_v2.keras · 6 Dimensions</span>
+          <span className="text-xs text-lab-500 font-mono">Rule-matched social-engineering patterns · 6 dimensions</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">

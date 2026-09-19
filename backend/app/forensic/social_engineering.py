@@ -51,6 +51,13 @@ _PATTERNS = {
             r"\bupdate your (login|credentials|security details)\b",
             r"\bclick here to (verify|login|sign in|authenticate)\b",
             r"\benter your (pin|passcode|secret code|two-factor)\b",
+            r"\bconfirm your (credentials|login details|account details)\b",
+            r"\bsign in (to|and) (confirm|verify|keep|continue|restore)\b",
+            r"\b(log ?in|sign in) to (verify|confirm|restore|unlock|reactivate)\b",
+            r"\bkeep (your )?current password\b",
+            r"\bvalidate your (account|mailbox|email)\b",
+            r"\breply with your (current )?password\b",
+            r"\b(send|provide|share) (me |us )?(your )?(otp|one[- ]time password|password|pin|cvv)\b",
         ],
         "explanation": "Directly requests the recipient to input or re-authenticate login credentials.",
     },
@@ -64,6 +71,11 @@ _PATTERNS = {
             r"\bunusual sign-?in activity\b",
             r"\baccount verification required\b",
             r"\bfailure to (verify|respond|update) will result\b",
+            r"\b(kyc|pan|aadhaar)( details)? (is |are )?(not )?(updated|expired|pending|incomplete)\b",
+            r"\bwill be (blocked|deactivated|closed|suspended)\b",
+            r"\bparcel (is )?(on hold|held)\b",
+            r"\b(customs|delivery|redelivery) fee\b",
+            r"\btax refund\b",
         ],
         "explanation": "Pretext regarding account suspension or security breach to prompt hasty submission to a phishing page.",
     },
@@ -76,6 +88,7 @@ _PATTERNS = {
             r"\bcan you do me a favou?r\b",
             r"\bi'?m (currently |)in a meeting and can'?t talk\b",
             r"\bpurchase (apple|google play|amazon|steam) gift cards?\b",
+            r"\bcannot take (any )?calls\b",
         ],
         "explanation": "Conversational phrasing and secrecy requests characteristic of CEO/Executive BEC fraud.",
     },
@@ -88,6 +101,10 @@ _PATTERNS = {
             r"\bnew (bank|payment) account\b",
             r"\bremit(tance)? (to|address)\b",
             r"\binvoice attached\b",
+            r"\bchange (the )?beneficiary\b",
+            r"\bbeneficiary (bank )?(details|account)\b",
+            r"\bprocess a (wire|payment|fund) transfer\b",
+            r"\boverdue invoice\b",
         ],
         "explanation": "Requests urgent financial transactions or redirects banking details (invoice fraud).",
     },
@@ -116,6 +133,17 @@ _PATTERNS = {
             r"\bview document online\b",
         ],
         "explanation": "Directs recipient toward opening untrusted attachments or clicking outbound links.",
+    },
+    "password_reset_pressure": {
+        "severity": "HIGH",
+        "patterns": [
+            r"\bpassword (will )?(expire[sd]?|expiring)\b",
+            r"\byour password (has )?expired\b",
+            r"\breset your password (now|immediately|today|within)\b",
+            r"\bmailbox (is )?(full|over quota)\b",
+            r"\bexceeded (its|your) (storage|quota)\b",
+        ],
+        "explanation": "Pressures the recipient into a password reset / mailbox-quota action — a common credential-phishing pretext.",
     },
     "spam_bulk": {
         "severity": "LOW",
@@ -168,6 +196,14 @@ def analyze_social_engineering(text_body: str, html_body: str, subject: str = ""
                     explanation=cfg["explanation"],
                     confidence=round(confidence, 2),
                 ))
+            elif indicator_type == "phishing_social_engineering":
+                indicators.append(ContentIndicator(
+                    indicator_type="account_verification", severity=cfg["severity"], matched_evidence=matched_str,
+                    explanation=cfg["explanation"], confidence=round(confidence, 2)))
+            elif indicator_type in ("explicit_threat", "blackmail_extortion", "harassment_intimidation"):
+                indicators.append(ContentIndicator(
+                    indicator_type="fear_threat", severity=cfg["severity"], matched_evidence=matched_str,
+                    explanation=cfg["explanation"], confidence=round(confidence, 2)))
             elif indicator_type == "payment_fraud":
                 indicators.append(ContentIndicator(
                     indicator_type="invoice_payment_diversion",

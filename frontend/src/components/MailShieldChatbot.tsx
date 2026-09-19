@@ -140,7 +140,7 @@ export default function MailShieldChatbot({ emailContext: propContext }: Props) 
     {
       id: "welcome",
       role: "assistant",
-      text: "👋 **MailShield AI Forensic Sentinel is online.**\n\nI am grounded in live telemetry from your trained Keras ML phishing detector, NLP threat-pattern classifier, and forensic header inspection.\n\nAsk me about threat vectors, authentication failures, or speak in any of **22 Indian languages** with the microphone below.",
+      text: "👋 **MailShield AI Forensic Sentinel is online.**\n\nI am grounded in live telemetry from the trained ML and NLP phishing models, the rule-based social-engineering detector, and forensic header inspection.\n\nAsk me about threat vectors, authentication failures, or speak in any of **22 Indian languages** with the microphone below.",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);

@@ -1,0 +1,16 @@
+From: "Newsletter" <news@smallclub.org>
+To: arun@gmail.com
+Subject: Club meeting minutes
+Date: Sat, 19 Sep 2026 08:00:00 +0000
+Message-ID: <n9@smallclub.org>
+Received: from relay.forwarder.net (relay.forwarder.net [198.18.0.1]) by
+ mx.google.com with ESMTPS id x1; Sat, 19 Sep 2026 08:00:02 +0000
+Authentication-Results: mx.google.com; spf=fail smtp.mailfrom=smallclub.org;
+ dkim=fail header.i=@smallclub.org; dmarc=fail header.from=smallclub.org
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Minutes of the September meeting are attached below.
+1. Treasurer report accepted.
+2. Next meeting on 10 October.

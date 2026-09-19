@@ -300,8 +300,8 @@ def run_analysis(db: Session, investigation_id: str, raw_bytes: bytes) -> None:
         db.commit()
 
         # --- blockchain evidence anchor (Phase 3) ---
-        import hashlib
-        report_hash = hashlib.sha256(str(report_json).encode("utf-8")).hexdigest()
+        from app.blockchain.ledger import canonical_report_hash
+        report_hash = canonical_report_hash(report_json)
         anchor_evidence(db, investigation.case_id, investigation.evidence_hash_sha256, report_hash)
         _log_audit(db, investigation.id, "EVIDENCE_ANCHORED", f"report_hash={report_hash[:16]}...")
 
@@ -493,3 +493,32 @@ def build_report_json(investigation: Investigation, result, fusion=None, intel_s
             "No outbound requests were made to any URL found in this message during analysis.",
         ],
     }
+
+
+def run_analysis_in_new_session(investigation_id: str, raw_bytes: bytes) -> None:
+    """Background-task entry point: uses its OWN database session (the request's
+    session is closed by the time a FastAPI background task runs)."""
+    from app.database.session import SessionLocal
+    db = SessionLocal()
+    try:
+        run_analysis(db, investigation_id, raw_bytes)
+    finally:
+        db.close()
+
+
+def analyze_email_for_user(raw_bytes: bytes, original_filename: str, user_id: str, created_by: str,
+                           source: str = "UPLOAD") -> str:
+    """Synchronous end-to-end analysis in a dedicated session. Returns investigation id.
+    Used by the direct-analysis API and the real-time Gmail monitor."""
+    from app.database.session import SessionLocal
+    db = SessionLocal()
+    try:
+        name = original_filename if original_filename.lower().endswith(".eml") else f"{original_filename}.eml"
+        inv = create_investigation(db, raw_bytes, name, "message/rfc822", created_by=created_by, user_id=user_id)
+        db.add(AuditLog(investigation_id=inv.id, actor=created_by or "system", action="EVIDENCE_ACQUIRED",
+                        detail=f"source={source}"))
+        db.commit()
+        run_analysis(db, inv.id, raw_bytes)
+        return inv.id
+    finally:
+        db.close()

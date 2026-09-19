@@ -1,0 +1,17 @@
+From: "IT Helpdesk" <helpdesk@rmkec.ac.in>
+To: student@rmkec.ac.in
+Subject: Mailbox storage notice
+Date: Thu, 17 Sep 2026 11:00:00 +0000
+Message-ID: <q1@mailer.example-bulk.ru>
+Return-Path: <bounce@mailer.example-bulk.ru>
+Received: from mailer.example-bulk.ru (mailer.example-bulk.ru [91.215.85.22])
+ by mx.google.com with ESMTPS id x1; Thu, 17 Sep 2026 11:00:03 +0000
+Authentication-Results: mx.google.com; spf=fail
+ smtp.mailfrom=mailer.example-bulk.ru; dkim=none; dmarc=fail (p=QUARANTINE)
+ header.from=rmkec.ac.in
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+Your mailbox has exceeded its storage limit. Please reply with your current p=
+assword so IT can increase your quota today.

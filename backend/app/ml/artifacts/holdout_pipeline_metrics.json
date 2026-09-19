@@ -1,0 +1,28 @@
+{
+  "n_phish": 399,
+  "n_legit": 400,
+  "threat_band (>=50)": {
+    "cut": 50,
+    "tp": 331,
+    "fn": 68,
+    "fp": 2,
+    "tn": 398,
+    "precision": 0.994,
+    "recall": 0.8296,
+    "f1": 0.9044,
+    "false_positive_rate": 0.005,
+    "false_negative_rate": 0.1704
+  },
+  "flagged (>=25)": {
+    "cut": 25,
+    "tp": 395,
+    "fn": 4,
+    "fp": 4,
+    "tn": 396,
+    "precision": 0.99,
+    "recall": 0.99,
+    "f1": 0.99,
+    "false_positive_rate": 0.01,
+    "false_negative_rate": 0.01
+  }
+}

@@ -64,6 +64,7 @@ def init_db() -> None:
     from app.models import user  # noqa: F401
     from app.models import gmail_account  # noqa: F401  ← per-user Gmail token storage
     from app.models import auth_session  # noqa: F401  ← login sessions + password resets
+    from app.models import processed_email  # noqa: F401  ← real-time monitor dedup/state
 
     inspector = sqlalchemy.inspect(engine)
     existing_tables = set(inspector.get_table_names())

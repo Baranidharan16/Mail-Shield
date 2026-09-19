@@ -172,21 +172,49 @@ def calculate_threat_score(
             detail="High time-pressure language intended to bypass scrutiny",
         ))
 
-    # Suspicious attachment check
-    has_suspicious_attachment = False
+    # Attachment checks (critical: executables / double extensions; high: macro, html, archives)
+    critical_att, risky_att = [], []
     if attachments:
-        dangerous_exts = {".exe", ".scr", ".vbs", ".js", ".iso", ".html", ".htm", ".xlsm", ".docm", ".jar", ".bat", ".cmd", ".ps1"}
+        import re as _re
         for att in attachments:
             fname = (att.get("filename") or "").lower()
-            if any(fname.endswith(ext) for ext in dangerous_exts):
-                has_suspicious_attachment = True
-                break
-    if has_suspicious_attachment:
+            if _re.search(r"\.(exe|scr|vbs|js|jar|bat|cmd|ps1|msi|lnk|hta|com|pif|wsf)$", fname) or \
+               _re.search(r"\.(pdf|doc|docx|xls|xlsx|jpg|png|txt)\.[a-z0-9]{2,4}$", fname):
+                critical_att.append(fname)
+            elif _re.search(r"\.(docm|xlsm|pptm|html?|svg|iso|img|zip|rar|7z)$", fname):
+                risky_att.append(fname)
+    has_suspicious_attachment = bool(critical_att or risky_att)
+    if critical_att:
+        evidence_items.append(EvidenceItem(
+            name="Executable / disguised attachment",
+            points=40,
+            category="CONTENT",
+            detail=f"Executable or double-extension attachment: {', '.join(critical_att[:3])}",
+        ))
+    elif risky_att:
         evidence_items.append(EvidenceItem(
             name="Suspicious attachment",
             points=20,
             category="CONTENT",
-            detail="Executable, script, macro-enabled, or payload delivery attachment",
+            detail=f"Macro-enabled, HTML or archive attachment: {', '.join(risky_att[:3])}",
+        ))
+
+    has_payment = "payment_fraud" in indicator_types or "invoice_payment_diversion" in indicator_types
+    if has_payment:
+        evidence_items.append(EvidenceItem(
+            name="Payment / invoice pressure",
+            points=20,
+            category="CONTENT",
+            detail="Request to pay, wire funds or change beneficiary bank details",
+        ))
+
+    has_pw_reset = "password_reset_pressure" in indicator_types
+    if has_pw_reset:
+        evidence_items.append(EvidenceItem(
+            name="Password-reset / mailbox pretext",
+            points=20,
+            category="CONTENT",
+            detail="Password expiry or mailbox-quota pretext used to harvest credentials",
         ))
 
     has_spam = "spam_bulk" in indicator_types
@@ -315,6 +343,24 @@ def calculate_threat_score(
             points=15,
             category="COMBINATION",
             detail="Complete authentication breakdown — sender domain totally unverified",
+        ))
+
+    # BEC: payment request + mismatched reply identity or executive impersonation
+    if has_payment and (identity_mismatch or has_impersonation):
+        combination_bonuses.append(EvidenceItem(
+            name="Payment request + identity deception (BEC)",
+            points=15,
+            category="COMBINATION",
+            detail="Payment/bank-change request combined with Reply-To mismatch or executive impersonation",
+        ))
+
+    # Credential request + brand look-alike domain
+    if (has_credential_harvesting or has_pw_reset or has_phishing) and any(d.lookalike_of for d in domain_findings):
+        combination_bonuses.append(EvidenceItem(
+            name="Credential lure + look-alike domain",
+            points=15,
+            category="COMBINATION",
+            detail="Credential/verification pretext sent from or linking to a brand look-alike domain",
         ))
 
     # Threat + Identity Mismatch

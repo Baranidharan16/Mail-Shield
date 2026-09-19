@@ -99,13 +99,33 @@ def parse_eml_bytes(raw_bytes: bytes) -> ParsedEmail:
     parsed = ParsedEmail()
     parsed.parse_warnings = warnings
 
+    # Header values are read from a compat32 parse and decoded defensively:
+    # malformed headers (common in phishing, e.g. broken address groups) must
+    # never abort the analysis.
+    from email import policy as _pol
+    from email.header import decode_header, make_header
+    raw_msg = message_from_bytes(raw_bytes, policy=_pol.compat32)
+
+    def _dec(v) -> str:
+        try:
+            return str(make_header(decode_header(str(v))))
+        except Exception:
+            return str(v)
+
+    def H(name: str) -> List[str]:
+        return [_dec(v) for v in (raw_msg.get_all(name) or [])]
+
+    def H1(name: str) -> Optional[str]:
+        vals = H(name)
+        return vals[0].strip() if vals else None
+
     # --- raw header preservation (ordered) --------------------------------
-    for idx, (name, value) in enumerate(msg.items()):
-        parsed.raw_headers.append({"name": name, "value": str(value)})
-        parsed.headers_index.setdefault(name.lower(), []).append(str(value))
+    for idx, (name, value) in enumerate(raw_msg.items()):
+        parsed.raw_headers.append({"name": name, "value": _dec(value)})
+        parsed.headers_index.setdefault(name.lower(), []).append(_dec(value))
 
     # --- From / display name ------------------------------------------------
-    from_header = msg.get("From")
+    from_header = H1("From")
     if from_header:
         addrs = getaddresses([str(from_header)])
         if addrs:
@@ -113,25 +133,25 @@ def parse_eml_bytes(raw_bytes: bytes) -> ParsedEmail:
             parsed.from_address = (parsed.from_address or "").lower() or None
             parsed.from_display_name = parsed.from_display_name or None
 
-    parsed.to_addresses = [a for _, a in getaddresses([str(v) for v in msg.get_all("To", [])])]
-    parsed.cc_addresses = [a for _, a in getaddresses([str(v) for v in msg.get_all("Cc", [])])]
-    parsed.bcc_addresses = [a for _, a in getaddresses([str(v) for v in msg.get_all("Bcc", [])])]
+    parsed.to_addresses = [a for _, a in getaddresses(H("To"))]
+    parsed.cc_addresses = [a for _, a in getaddresses(H("Cc"))]
+    parsed.bcc_addresses = [a for _, a in getaddresses(H("Bcc"))]
 
-    parsed.subject = _first_header(msg, "Subject")
-    parsed.date_raw = _first_header(msg, "Date")
+    parsed.subject = H1("Subject")
+    parsed.date_raw = H1("Date")
     if parsed.date_raw:
         try:
             parsed.date_parsed = parsedate_to_datetime(parsed.date_raw)
         except Exception:
             parsed.parse_warnings.append("Could not parse Date header")
 
-    reply_to_header = msg.get("Reply-To")
+    reply_to_header = H1("Reply-To")
     if reply_to_header:
         addrs = getaddresses([str(reply_to_header)])
         if addrs:
             parsed.reply_to = (addrs[0][1] or "").lower() or None
 
-    return_path_header = msg.get("Return-Path")
+    return_path_header = H1("Return-Path")
     if return_path_header:
         addrs = getaddresses([str(return_path_header)])
         if addrs and addrs[0][1]:
@@ -139,22 +159,30 @@ def parse_eml_bytes(raw_bytes: bytes) -> ParsedEmail:
         else:
             parsed.return_path = str(return_path_header).strip("<>").lower() or None
 
-    parsed.message_id = _first_header(msg, "Message-ID")
-    parsed.mime_version = _first_header(msg, "MIME-Version")
-    parsed.content_type = msg.get_content_type()
-    parsed.x_mailer = _first_header(msg, "X-Mailer")
-    parsed.user_agent = _first_header(msg, "User-Agent")
+    parsed.message_id = H1("Message-ID")
+    parsed.mime_version = H1("MIME-Version")
+    try:
+        parsed.content_type = msg.get_content_type()
+    except Exception:
+        parsed.content_type = None
+    parsed.x_mailer = H1("X-Mailer")
+    parsed.user_agent = H1("User-Agent")
 
-    parsed.authentication_results_raw = [str(v) for v in msg.get_all("Authentication-Results", [])]
-    parsed.dkim_signature_raw = [str(v) for v in msg.get_all("DKIM-Signature", [])]
-    parsed.received_headers_raw = [str(v) for v in msg.get_all("Received", [])]
+    parsed.authentication_results_raw = H("Authentication-Results")
+    parsed.dkim_signature_raw = H("DKIM-Signature")
+    parsed.received_headers_raw = H("Received")
 
     # --- body extraction (text + html), attachments ------------------------
-    if msg.is_multipart():
-        for part in msg.walk():
+    try:
+        parts = list(msg.walk()) if msg.is_multipart() else [msg]
+    except Exception:
+        parts = []
+        parsed.parse_warnings.append("MIME structure could not be walked")
+    for part in parts:
+        try:
             _consume_part(part, parsed)
-    else:
-        _consume_part(msg, parsed)
+        except Exception as exc:  # malformed part headers must not abort analysis
+            parsed.parse_warnings.append(f"Skipped a malformed MIME part ({type(exc).__name__})")
 
     return parsed
 

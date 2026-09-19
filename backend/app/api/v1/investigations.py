@@ -61,7 +61,7 @@ async def create_investigation(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to process uploaded file")
 
     # Kick off analysis in the background immediately (real-time processing requirement)
-    background_tasks.add_task(investigation_service.run_analysis, db, investigation.id, raw_bytes)
+    background_tasks.add_task(investigation_service.run_analysis_in_new_session, investigation.id, raw_bytes)
 
     return InvestigationCreateResponse(
         id=investigation.id,
@@ -99,7 +99,7 @@ async def trigger_analyze(
         raise HTTPException(status_code=500, detail="Evidence file missing from storage")
 
     raw_bytes = storage_path.read_bytes()
-    background_tasks.add_task(investigation_service.run_analysis, db, investigation.id, raw_bytes)
+    background_tasks.add_task(investigation_service.run_analysis_in_new_session, investigation.id, raw_bytes)
 
     return InvestigationCreateResponse(
         id=investigation.id, case_id=investigation.case_id, status="PROCESSING",
@@ -149,28 +149,24 @@ def get_investigation(
 
     detail = InvestigationDetail.model_validate(investigation)
 
-    # Enrich with real-time MailShield Keras ML & NLP predictions from trained models
+    # ML / NLP panel data: the stored v2 model outputs of THIS analysis (no re-inference,
+    # so the panel always matches the verdict and the ledger-anchored report).
     try:
-        from services.ml_service import get_ml_service
-        from services.nlp_service import get_nlp_service
-        from pathlib import Path
-
-        storage_path = Path(settings.UPLOAD_STORAGE_DIR).resolve() / investigation.filename
-        text_content = ""
-        if storage_path.exists():
-            from services.email_parser import parse_eml_bytes
-            parsed = parse_eml_bytes(storage_path.read_bytes())
-            text_content = parsed.model_text
-        elif investigation.email_metadata:
-            text_content = f"{investigation.email_metadata.subject or ''}\n{investigation.email_metadata.from_address or ''}"
-
-        if text_content:
-            ml_res = get_ml_service().predict(text_content)
-            nlp_res = get_nlp_service().predict(text_content)
-            detail.ml_detection = ml_res.model_dump()
-            detail.nlp_detection = nlp_res.model_dump()
+        mlp = investigation.ml_prediction
+        if mlp is not None and (mlp.structured_available or mlp.text_available):
+            p_s = (mlp.structured_probabilities or {}).get("PHISHING") if mlp.structured_available else None
+            p_t = (mlp.text_probabilities or {}).get("PHISHING") if mlp.text_available else None
+            p = float(p_s if p_s is not None else p_t or 0.0)
+            detail.ml_detection = {
+                "prediction": "phishing" if "PHISHING" in (mlp.structured_label, mlp.text_label) else "legitimate",
+                "phishing_probability": round(p, 4), "confidence": round(max(p, 1 - p), 4),
+                "structured_probability": p_s, "text_probability": p_t,
+                "model_version": mlp.structured_model_version or mlp.text_model_version,
+            }
+            from routes.analysis import _nlp_from_indicators
+            detail.nlp_detection = _nlp_from_indicators(investigation.indicators).model_dump()
     except Exception as e:
-        logger.warning("Could not compute real-time ML/NLP for investigation detail: %s", e)
+        logger.warning("Could not attach ML/NLP detail: %s", e)
 
     return detail
 
@@ -334,8 +330,28 @@ def verify_evidence(
     if not investigation:
         raise HTTPException(status_code=404, detail="Investigation not found")
     _check_investigation_access(investigation, current_user)
-    from app.blockchain.ledger import verify_evidence_for_case
-    return verify_evidence_for_case(db, investigation.case_id, investigation.evidence_hash_sha256)
+    from app.blockchain.ledger import verify_investigation_integrity
+    return verify_investigation_integrity(db, investigation)
+
+
+@router.get("/{investigation_id}/verdict")
+def get_forensic_verdict(
+    investigation_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    """One evidence-derived forensic conclusion: status, conditional deep-forensic agent,
+    identity, authentication, relay route/hops, threat origin (OBSERVED/INFERRED/UNKNOWN),
+    attack vectors, threat path, domain intelligence and ledger integrity."""
+    investigation = db.get(Investigation, investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+    _check_investigation_access(investigation, current_user)
+    if investigation.status != "COMPLETED":
+        raise HTTPException(status_code=409, detail=f"Analysis not finished yet (status: {investigation.status}).")
+    from app.blockchain.ledger import verify_investigation_integrity
+    from app.forensic.verdict import build_forensic_verdict
+    return build_forensic_verdict(investigation, integrity=verify_investigation_integrity(db, investigation))
 
 
 @router.get("/{investigation_id}/report/pdf")

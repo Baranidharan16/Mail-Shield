@@ -67,15 +67,19 @@ async def model_status():
     sarvam_status = "CONNECTED" if has_sarvam else "UNAVAILABLE"
     ollama_status = "CONNECTED" if reasoning_type == "ollama" else "NOT CONFIGURED"
 
+    from app.ml.structured_model import get_structured_model
+    from app.ml.text_model import get_text_model
     return ModelStatusResponse(
-        ml_model_loaded=ml_service.is_loaded(),
-        nlp_model_loaded=nlp_service.is_loaded(),
+        # Production detection uses the v2 scikit-learn models; the legacy Keras
+        # models are optional extras when TensorFlow is installed.
+        ml_model_loaded=get_structured_model().is_available or ml_service.is_loaded(),
+        nlp_model_loaded=get_text_model().is_available or nlp_service.is_loaded(),
         forensic_engine_active=True,
         gemini_status=gemini_status,
         sarvam_voice_status=sarvam_status,
         ollama_status=ollama_status,
-        autonomous_agent_status="NOT CONFIGURED",
-        autonomous_agent_active=False,
+        autonomous_agent_status="ACTIVE" if os.getenv("GMAIL_MONITOR_ENABLED", "true").lower() != "false" else "NOT CONFIGURED",
+        autonomous_agent_active=os.getenv("GMAIL_MONITOR_ENABLED", "true").lower() != "false",
         ml_model_path=ml_service.model_path,
         nlp_model_path=nlp_service.model_path,
         reasoning_provider=reasoning_type,

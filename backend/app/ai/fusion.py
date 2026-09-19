@@ -32,9 +32,11 @@ from app.ml.model_provider import ModelPrediction
 # so it anchors the fusion; ML and threat intel adjust it up/down based on
 # corroborating or conflicting evidence.
 FUSION_WEIGHTS = {
-    "deterministic_forensic_score": 0.55,
-    "ml_structured_score": 0.20,
-    "ml_text_score": 0.10,
+    # Weights reflect held-out quality of each layer (see app/ml/artifacts/metrics.json):
+    # the NLP text model (F1 0.98) outweighs the content-feature model (F1 0.89).
+    "deterministic_forensic_score": 0.45,
+    "ml_structured_score": 0.15,
+    "ml_text_score": 0.25,
     "threat_intel_score": 0.15,
 }
 
@@ -70,6 +72,9 @@ class FusionResult:
 def _label_to_score(pred: ModelPrediction) -> Optional[float]:
     if not pred.available or not pred.predicted_label:
         return None
+    # v2 binary models expose a calibrated probability — use it directly.
+    if "PHISHING" in pred.class_probabilities and "LEGITIMATE" in pred.class_probabilities:
+        return round(100.0 * float(pred.class_probabilities["PHISHING"]), 1)
     return float(_LABEL_RISK.get(pred.predicted_label, 50))
 
 
@@ -163,6 +168,42 @@ def fuse(
         overall = max(det_score, (weighted_sum / weight_used_total) if weight_used_total > 0 else det_score)
     else:
         overall = (weighted_sum / weight_used_total) if weight_used_total > 0 else det_score
+
+    # Independent-model consensus: when BOTH learned models (structured forensic
+    # features + NLP text) are confident this is a threat AND at least one
+    # deterministic indicator corroborates it, the message is at least HIGH.
+    # Neither model alone can push a message into the THREAT band.
+    s_p = structured_pred.class_probabilities.get("PHISHING") if structured_pred.available else None
+    t_p = text_pred.class_probabilities.get("PHISHING") if text_pred.available else None
+    corroborated = bool(forensic.social_engineering_indicators or forensic.header_findings
+                        or any(u.risk_score >= 40 for u in forensic.url_findings))
+    if s_p is not None and t_p is not None and min(s_p, t_p) >= 0.8 and corroborated:
+        floor = 50.0 + 40.0 * (min(s_p, t_p) - 0.8) / 0.2
+        if floor > overall:
+            reasons.append(
+                f"Both ML models independently indicate a threat (structured {s_p:.0%}, NLP {t_p:.0%}) "
+                f"and deterministic indicators corroborate it — score raised to {floor:.0f}."
+            )
+            overall = floor
+
+    # Evidence gating: learned models alone never declare a THREAT.
+    det_evidence = bool(
+        det_score > 0
+        or [f for f in forensic.header_findings if f.severity in ("MEDIUM", "HIGH", "CRITICAL")]
+        or [i for i in forensic.social_engineering_indicators if i.indicator_type != "spam_bulk"]
+        or any(u.risk_score >= 40 for u in forensic.url_findings)
+    )
+    if not det_evidence:
+        auth_ok = (forensic.authentication.dmarc.result == "PASS")
+        bulk = bool(forensic.parsed_email.headers_index.get("list-unsubscribe"))
+        cap = 24.0 if (auth_ok and (bulk or not (t_p is not None and t_p >= 0.5))) else 49.0
+        if overall > cap:
+            reasons.append(
+                "No deterministic forensic indicator corroborates the ML signal"
+                + (" and the sender is DMARC-authenticated" + (" bulk/list mail" if bulk else "") if cap < 25 else "")
+                + f"; score capped at {cap:.0f} (models alone cannot declare a threat)."
+            )
+            overall = cap
 
     overall = round(min(100.0, max(0.0, overall)), 1)
 

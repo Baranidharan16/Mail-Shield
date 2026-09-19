@@ -18,7 +18,10 @@ from app.models.user import User
 from schemas.analysis import (
     EmailAnalysisResponse,
     EmailMetadata,
+    MLAnalysisResult,
+    NLPAnalysisResult,
     RawEmailRequest,
+    RiskResult,
 )
 from services.email_parser import ParsedEmailData, parse_eml_bytes
 from services.forensic_service import analyze_forensics
@@ -34,139 +37,103 @@ logger = logging.getLogger("mailshield.routes.analysis")
 router = APIRouter(tags=["Analysis"])
 
 
+def _nlp_from_indicators(indicators) -> NLPAnalysisResult:
+    """Category scores = strongest matched social-engineering pattern per category
+    (rule/pattern based, each backed by a matched phrase stored as evidence)."""
+    best = {}
+    for i in indicators or []:
+        best[i.indicator_type] = max(best.get(i.indicator_type, 0.0), float(i.confidence or 0.0))
+    g = lambda *k: round(max([best.get(x, 0.0) for x in k] + [0.0]), 4)  # noqa: E731
+    return NLPAnalysisResult(
+        urgency=g("urgency"),
+        credential_request=g("credential_request", "account_verification", "password_reset_pressure"),
+        financial_manipulation=g("payment_request", "invoice_payment_diversion"),
+        impersonation=g("executive_impersonation"),
+        threat_language=g("fear_threat"),
+        suspicious_action=g("suspicious_call_to_action"),
+    )
+
+
 async def _process_analysis(
     parsed: ParsedEmailData,
     current_user: Optional[User] = None,
     db: Optional[Session] = None,
+    filename: Optional[str] = None,
+    source: str = "UPLOAD",
 ) -> EmailAnalysisResponse:
-    """Executes the complete MailShield forensic & AI pipeline and records user investigation."""
-    analysis_id = str(uuid.uuid4())
+    """
+    Runs the ONE canonical MailShield pipeline (same as uploads and the real-time
+    Gmail monitor): forensic engine -> ML (structured) -> NLP (text) -> rule engine ->
+    threat intel -> fusion -> correlation -> forensic agent -> report -> ledger anchor.
+    The investigation is stored under the authenticated user; this response is a
+    summary view of those stored results.
+    """
+    from starlette.concurrency import run_in_threadpool
+    from app.models.investigation import Investigation
+    from app.services.investigation_service import analyze_email_for_user
 
-    # 1. Run ML Phishing Detection Model (mailshield_ml.keras)
-    ml_service = get_ml_service()
-    if not ml_service.is_loaded():
-        logger.warning("ML Service was not loaded; attempting lazy load.")
-        ml_service.load()
-    ml_result = ml_service.predict(parsed.model_text)
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    raw = parsed.raw_bytes or b""
+    if not raw.strip():
+        raise HTTPException(status_code=400, detail="The email is empty.")
 
-    # 2. Run NLP Threat-Pattern Model (mailshield_nlp.keras)
-    nlp_service = get_nlp_service()
-    if not nlp_service.is_loaded():
-        logger.warning("NLP Service was not loaded; attempting lazy load.")
-        nlp_service.load()
-    nlp_result = nlp_service.predict(parsed.model_text)
+    inv_id = await run_in_threadpool(
+        analyze_email_for_user, raw, filename or f"analysis_{uuid.uuid4().hex[:8]}.eml",
+        current_user.id, current_user.email, source,
+    )
+    db.expire_all()
+    inv = db.get(Investigation, inv_id)
+    if inv is None or inv.status != "COMPLETED":
+        detail = (inv.error_message if inv else None) or "Analysis failed."
+        raise HTTPException(status_code=500, detail=f"Analysis pipeline error: {detail}")
 
-    # 3. Run Forensic Analyzer
+    mlp = inv.ml_prediction
+    p_struct = float((mlp.structured_probabilities or {}).get("PHISHING", 0.0)) if (mlp and mlp.structured_available) else None
+    p_text = float((mlp.text_probabilities or {}).get("PHISHING", 0.0)) if (mlp and mlp.text_available) else None
+    p = p_struct if p_struct is not None else (p_text if p_text is not None else 0.0)
+    label = "phishing" if (mlp and "PHISHING" in (mlp.structured_label, mlp.text_label)) else "legitimate"
+    ml_result = MLAnalysisResult(prediction=label, phishing_probability=round(p, 4),
+                                 confidence=round(max(p, 1 - p), 4))
+    nlp_result = _nlp_from_indicators(inv.indicators)
     forensics_result = analyze_forensics(parsed)
-
-    # 4. Calculate Deterministic Risk Score (0-100)
-    risk_result = calculate_risk_score(ml_result, nlp_result, forensics_result)
-
-    # 5. Format Metadata
+    risk_result = RiskResult(
+        score=int(round(inv.risk_score or 0)),
+        level=inv.classification or "LOW",
+        contributing_factors=list((mlp.fused_reasons if mlp else None) or [])[:10],
+    )
+    m = inv.email_metadata
     email_meta = EmailMetadata(
-        subject=parsed.subject,
-        sender=parsed.from_header,
-        sender_domain=parsed.sender_domain,
-        reply_to=parsed.reply_to,
-        reply_to_domain=parsed.reply_to_domain,
-        date=parsed.date,
-        message_id=parsed.message_id,
+        subject=(m.subject if m else parsed.subject) or "",
+        sender=(m.from_address if m else parsed.from_header) or "",
+        sender_domain=(m.sender_domain if m else parsed.sender_domain) or "",
+        reply_to=(m.reply_to if m else parsed.reply_to) or "",
+        reply_to_domain=(m.reply_to_domain if m else parsed.reply_to_domain) or "",
+        date=(m.date_raw if m else parsed.date) or "",
+        message_id=(m.message_id if m else parsed.message_id) or "",
     )
-
-    # 6. Generate AI Reasoning via MailShield AI (Gemini with Fallback)
-    reasoning_provider = get_reasoning_provider()
-    ai_reasoning = await reasoning_provider.generate_explanation(
-        email=email_meta,
-        ml=ml_result,
-        nlp=nlp_result,
-        forensics=forensics_result,
-        risk=risk_result,
+    ai_reasoning = await get_reasoning_provider().generate_explanation(
+        email=email_meta, ml=ml_result, nlp=nlp_result, forensics=forensics_result, risk=risk_result,
     )
-
-    # Persist investigation into SQLite database linked to current user
-    if db is not None:
-        try:
-            from app.models.investigation import (
-                Investigation,
-                EmailMetadata as DBEmailMeta,
-                MLPrediction as DBMLPred,
-                Report as DBReport,
-            )
-            from app.utils.storage import generate_case_id
-            import hashlib
-
-            evidence_hash = hashlib.sha256(parsed.raw_bytes).hexdigest() if parsed.raw_bytes else str(uuid.uuid4())
-            user_id = current_user.id if current_user else None
-            cls_val = getattr(risk_result, "level", "LOW")
-            r_score = float(getattr(risk_result, "score", getattr(risk_result, "risk_score", 0)))
-
-            inv = Investigation(
-                id=analysis_id,
-                case_id=generate_case_id(),
-                filename=f"email_{analysis_id[:8]}.eml",
-                original_filename=(parsed.subject[:80] or "email_analysis.eml"),
-                evidence_hash_sha256=evidence_hash,
-                file_size_bytes=len(parsed.raw_bytes) if parsed.raw_bytes else 1024,
-                status="COMPLETED",
-                classification=cls_val,
-                risk_score=r_score,
-                confidence=float(ml_result.confidence),
-                created_by=current_user.email if current_user else "anonymous",
-                user_id=user_id,
-                analyzed_at=datetime.now(timezone.utc),
-            )
-            db.add(inv)
-
-            # Record Email Metadata
-            db_meta = DBEmailMeta(
-                investigation_id=analysis_id,
-                from_address=parsed.from_header,
-                subject=parsed.subject,
-                sender_domain=parsed.sender_domain,
-                reply_to=parsed.reply_to,
-                reply_to_domain=parsed.reply_to_domain,
-                date_raw=parsed.date,
-                message_id=parsed.message_id,
-            )
-            db.add(db_meta)
-
-            # Record ML Prediction
-            ml_lbl = ml_result.prediction.value if hasattr(ml_result.prediction, "value") else str(ml_result.prediction)
-            db_ml = DBMLPred(
-                investigation_id=analysis_id,
-                text_available=True,
-                text_label=ml_lbl,
-                text_confidence=float(ml_result.confidence),
-                text_probabilities={"phishing": float(ml_result.phishing_probability)},
-                text_model_version="mailshield_keras_v1",
-                fused_overall_score=r_score,
-                fused_classification=cls_val,
-                fused_confidence=float(ml_result.confidence),
-            )
-            db.add(db_ml)
-
-            # Record AI Reasoning Report
-            db_report = DBReport(
-                investigation_id=analysis_id,
-                report_json=ai_reasoning.model_dump() if hasattr(ai_reasoning, "model_dump") else {"summary": ai_reasoning.summary},
-            )
-            db.add(db_report)
-
-            db.commit()
-            logger.info("Investigation %s saved to DB for user %s", analysis_id, user_id)
-        except Exception as save_err:
-            logger.warning("Could not persist analysis to DB: %s", save_err)
-            db.rollback()
-
     return EmailAnalysisResponse(
-        analysis_id=analysis_id,
-        email=email_meta,
-        ml=ml_result,
-        nlp=nlp_result,
-        forensics=forensics_result,
-        risk=risk_result,
-        ai_reasoning=ai_reasoning,
+        analysis_id=inv.id, email=email_meta, ml=ml_result, nlp=nlp_result,
+        forensics=forensics_result, risk=risk_result, ai_reasoning=ai_reasoning,
     )
+
+
+def _compose_rfc822(subject: str, sender: str, reply_to: str, body: str) -> bytes:
+    """Wrap pasted text in a minimal RFC 822 message so the forensic engine can run.
+    Headers are exactly what the user supplied — nothing is invented."""
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    if sender:
+        msg["From"] = sender
+    if reply_to and reply_to != sender:
+        msg["Reply-To"] = reply_to
+    msg["X-MailShield-Source"] = "pasted-text (no transport headers available)"
+    msg.set_content(body)
+    return bytes(msg)
 
 
 @router.post("/api/analyze-email", response_model=EmailAnalysisResponse)
@@ -191,11 +158,12 @@ async def analyze_email(
             if not content_bytes:
                 raise HTTPException(status_code=400, detail="Uploaded file is empty.")
             parsed = parse_eml_bytes(content_bytes)
-            return await _process_analysis(parsed, current_user=current_user, db=db)
+            return await _process_analysis(parsed, current_user=current_user, db=db,
+                                           filename=file.filename or "upload.eml", source="UPLOAD")
 
         elif raw_text and raw_text.strip():
             sub = subject or "Manual Text Submission"
-            sender_hdr = sender or "unknown@local.host"
+            sender_hdr = sender or ""
             reply_hdr = reply_to or sender_hdr
             sender_dom = extract_domain(sender_hdr)
             reply_dom = extract_domain(reply_hdr)
@@ -224,9 +192,10 @@ async def analyze_email(
                 authentication_results_raw=[],
                 dkim_signatures_raw=[],
                 raw_headers={},
-                raw_bytes=raw_text.encode("utf-8"),
+                raw_bytes=_compose_rfc822(sub, sender_hdr, reply_hdr, raw_text),
             )
-            return await _process_analysis(parsed, current_user=current_user, db=db)
+            return await _process_analysis(parsed, current_user=current_user, db=db,
+                                           filename="pasted_text.eml", source="PASTED_TEXT")
 
         else:
             raise HTTPException(
@@ -240,10 +209,7 @@ async def analyze_email(
         # Log the FULL traceback so the exact upstream error (e.g. Keras shape
         # mismatch, preprocessing failure) is always visible in development logs.
         logger.exception("Unexpected error during email analysis pipeline: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Analysis pipeline error: {str(exc)}"
-        )
+        raise HTTPException(status_code=500, detail="Analysis pipeline error. Please try again.")
 
 
 @router.post("/api/analyze-raw", response_model=EmailAnalysisResponse)

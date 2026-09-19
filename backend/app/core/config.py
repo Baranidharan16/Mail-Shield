@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     # --- Heavy TensorFlow models (disable on small instances, e.g. Render free 512 MB) ---
     LOAD_ML_MODELS: bool = True
 
+    # --- Real-time Gmail monitoring -------------------------------------------
+    GMAIL_MONITOR_ENABLED: bool = True          # background poller on/off (server-wide)
+    GMAIL_POLL_INTERVAL_SECONDS: int = 60
+    GMAIL_MAX_PER_CYCLE: int = 10               # per user per cycle (rate/cost guard)
+    GMAIL_LOOKBACK_DAYS: int = 2                # first run only looks at recent mail
+    GMAIL_AUTO_QUARANTINE: bool = False         # never modify mailbox unless explicitly enabled
+
+    # --- Privacy / retention ----------------------------------------------------
+    DATA_RETENTION_DAYS: int = 90               # investigations older than this are purged (0 = keep)
+
     # --- Scoring engine config file -----------------------------------------
     SCORING_CONFIG_PATH: str = "app/forensic/scoring_weights.json"
 

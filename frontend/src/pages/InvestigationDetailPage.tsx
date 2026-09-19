@@ -34,6 +34,7 @@ import ForensicEvidenceBreakdown from "../components/ForensicEvidenceBreakdown";
 import { InteractiveGeoMap } from "../components/InteractiveGeoMap";
 import { EarliestObservableNodePanel } from "../components/EarliestObservableNodePanel";
 import { SecurityDecisionTree } from "../components/SecurityDecisionTree";
+import ForensicVerdictPanel from "../components/ForensicVerdictPanel";
 
 
 function Section({
@@ -318,6 +319,9 @@ export default function InvestigationDetailPage() {
         />
       )}
 
+      {/* ONE CLEAR FORENSIC RESULT — evidence-derived verdict, origin, hops, vectors, integrity */}
+      <ForensicVerdictPanel investigationId={data.id} status={data.status} />
+
       {/* Risk gauge + quick facts */}
       {rsb && (
         <div className="glass-section p-6 mb-6">
@@ -363,7 +367,7 @@ export default function InvestigationDetailPage() {
         </div>
       )}
 
-      {/* ── AI DETECTION ANALYSIS (Real Keras ML + NLP Models) ─────────────── */}
+      {/* ── AI DETECTION ANALYSIS (stored ML + NLP model outputs) ─────────────── */}
       <AIDetectionAnalysis
         mlDetection={data.ml_detection}
         nlpDetection={data.nlp_detection}

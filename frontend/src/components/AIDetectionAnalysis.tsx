@@ -67,7 +67,7 @@ export default function AIDetectionAnalysis({ mlDetection, nlpDetection }: AIDet
               </span>
             </div>
             <p className="text-xs text-lab-400 font-mono">
-              Evaluated directly by MailShield trained Keras neural network models
+              Stored outputs of the trained MailShield ML (forensic features) and NLP (language) models for this email
             </p>
           </div>
         </div>

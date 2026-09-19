@@ -22,6 +22,9 @@ import type {
   ForensicAIChatResponse,
   MailShieldAnalysisResponse,
   ModelStatusResponse,
+  ForensicVerdict,
+  MonitorStatus,
+  MonitoredEmail,
 } from "../types/investigation";
 
 
@@ -834,4 +837,45 @@ export async function registerBlockchainEvidence(evidenceId: string, caseId?: st
     params: { case_id: caseId },
   });
   return data;
+}
+
+
+// ── Forensic verdict, real-time monitor & privacy controls ──────────────────
+export async function getForensicVerdict(id: string): Promise<ForensicVerdict> {
+  const { data } = await apiClient.get<ForensicVerdict>(`/investigations/${id}/verdict`, { timeout: 90000 });
+  return data;
+}
+
+export async function getMonitorStatus(): Promise<MonitorStatus> {
+  const { data } = await apiClient.get<MonitorStatus>("/monitor/status");
+  return data;
+}
+
+export async function setMonitorEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
+  const { data } = await apiClient.post<{ enabled: boolean }>("/monitor/toggle", { enabled });
+  return data;
+}
+
+export async function runMonitorNow(): Promise<{ analyzed: number }> {
+  const { data } = await apiClient.post<{ analyzed: number }>("/monitor/run-now", null, { timeout: 180000 });
+  return data;
+}
+
+export async function getMonitoredEmails(limit = 30): Promise<MonitoredEmail[]> {
+  const { data } = await apiClient.get<MonitoredEmail[]>("/monitor/recent", { params: { limit } });
+  return data;
+}
+
+export async function getMyDataSummary(): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.get<Record<string, unknown>>("/privacy/my-data");
+  return data;
+}
+
+export async function deleteMyData(): Promise<{ deleted_investigations: number; message: string }> {
+  const { data } = await apiClient.delete("/privacy/my-data");
+  return data;
+}
+
+export async function deleteInvestigation(id: string): Promise<void> {
+  await apiClient.delete(`/investigations/${id}`);
 }

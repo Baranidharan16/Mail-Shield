@@ -1,0 +1,36 @@
+From: "Accounts" <accounts@vendor-billing.co>
+To: finance@company.in
+Subject: Invoice INV-2291 overdue
+Date: Fri, 18 Sep 2026 08:00:00 +0000
+Message-ID: <a6@vendor-billing.co>
+Received: from mail.vendor-billing.co (mail.vendor-billing.co [193.42.33.7])
+ by mx.google.com with ESMTPS id x1; Fri, 18 Sep 2026 08:00:02 +0000
+Authentication-Results: mx.google.com; spf=pass
+ smtp.mailfrom=vendor-billing.co; dkim=none; dmarc=none
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============7844476268517311176=="
+
+--===============7844476268517311176==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Please find the overdue invoice attached. Open the document and enable conten=
+t to view it.
+
+--===============7844476268517311176==
+Content-Type: application/zip
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="INV-2291.pdf.exe.zip"
+MIME-Version: 1.0
+
+UEsDBGZha2UtemlwLWJ5dGVz
+
+--===============7844476268517311176==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="Invoice_INV-2291.pdf.exe"
+MIME-Version: 1.0
+
+TVqQAA==
+
+--===============7844476268517311176==--

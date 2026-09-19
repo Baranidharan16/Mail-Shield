@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 
 from app.forensic.engine import ForensicAnalysisResult
 
-FEATURE_VERSION = "1.0.0"
+FEATURE_VERSION = "2.0.0"
 
 FEATURE_DOCS: Dict[str, str] = {
     # Header features
@@ -77,6 +77,23 @@ FEATURE_DOCS: Dict[str, str] = {
     # Infrastructure features
     "any_hop_ip_private": "1 if any Received-hop IP is a private/reserved address (unusual for internet-transited mail)",
     "ip_address_count": "number of distinct IP addresses observed (hops + IP-based URLs)",
+    # Attachment features (v2)
+    "attachment_count": "number of MIME attachments",
+    "has_executable_attachment": "1 if an attachment has an executable/script extension (.exe .scr .js .vbs .bat .cmd .ps1 .jar .msi .lnk .hta)",
+    "has_macro_office_attachment": "1 if an attachment is a macro-capable Office file (.docm .xlsm .pptm .doc .xls)",
+    "has_archive_attachment": "1 if an attachment is an archive (.zip .rar .7z .iso .img)",
+    "has_html_attachment": "1 if an attachment is an HTML/SVG file (common credential-phishing carrier)",
+    "has_double_extension_attachment": "1 if an attachment name has a double extension (e.g. invoice.pdf.exe)",
+    # Formatting / subject / body characteristics (v2)
+    "subject_length": "number of characters in the subject",
+    "subject_caps_ratio": "fraction of letters in the subject that are upper-case",
+    "subject_has_exclamation": "1 if subject contains '!'",
+    "subject_has_re_fwd": "1 if subject starts with Re:/Fwd: (thread-hijack pretext or real reply)",
+    "body_word_count_log": "log10(1 + number of words in the visible body)",
+    "html_only_body": "1 if the message has an HTML body but no plain-text part",
+    "link_density": "URLs per 100 words of visible text",
+    "has_form_or_script_html": "1 if the HTML body contains <form> or <script>",
+    "hidden_text_html": "1 if the HTML uses display:none / font-size:0 / visibility:hidden (hidden-text evasion)",
 }
 
 FEATURE_NAMES: List[str] = list(FEATURE_DOCS.keys())
@@ -172,6 +189,37 @@ def build_feature_vector(result: ForensicAnalysisResult) -> FeatureVector:
     # --- infrastructure ---
     v["any_hop_ip_private"] = float(any(ip.is_private for ip in result.ip_findings if ip.source == "received_hop"))
     v["ip_address_count"] = float(len(result.ip_findings))
+
+    # --- attachments (v2) ---
+    import math
+    import re as _re
+    atts = parsed.attachments or []
+    names = [(a.filename or "").lower() for a in atts]
+    def _ext(n: str) -> str:
+        return n.rsplit(".", 1)[-1] if "." in n else ""
+    v["attachment_count"] = float(len(atts))
+    v["has_executable_attachment"] = float(any(_ext(n) in {"exe", "scr", "js", "vbs", "bat", "cmd", "ps1", "jar", "msi", "lnk", "hta", "com", "pif"} for n in names))
+    v["has_macro_office_attachment"] = float(any(_ext(n) in {"docm", "xlsm", "pptm", "doc", "xls"} for n in names))
+    v["has_archive_attachment"] = float(any(_ext(n) in {"zip", "rar", "7z", "iso", "img", "gz"} for n in names))
+    v["has_html_attachment"] = float(any(_ext(n) in {"html", "htm", "shtml", "svg"} for n in names))
+    v["has_double_extension_attachment"] = float(any(_re.search(r"\.(pdf|doc|docx|xls|xlsx|jpg|png|txt)\.[a-z0-9]{2,4}$", n) is not None for n in names))
+
+    # --- formatting / subject / body (v2) ---
+    subj = parsed.subject or ""
+    letters = [c for c in subj if c.isalpha()]
+    v["subject_length"] = float(len(subj))
+    v["subject_caps_ratio"] = (sum(c.isupper() for c in letters) / len(letters)) if letters else 0.0
+    v["subject_has_exclamation"] = float("!" in subj)
+    v["subject_has_re_fwd"] = float(bool(_re.match(r"^\s*(re|fw|fwd)\s*:", subj, _re.I)))
+    html = parsed.html_body or ""
+    visible = (parsed.text_body or "") or _re.sub(r"<[^>]+>", " ", html)
+    words = len(visible.split())
+    v["body_word_count_log"] = math.log10(1 + words)
+    v["html_only_body"] = float(bool(html.strip()) and not (parsed.text_body or "").strip())
+    v["link_density"] = (len(urls) * 100.0 / words) if words else float(len(urls) > 0) * 100.0
+    low = html.lower()
+    v["has_form_or_script_html"] = float("<form" in low or "<script" in low)
+    v["hidden_text_html"] = float(bool(_re.search(r"display\s*:\s*none|font-size\s*:\s*0(px)?\b|visibility\s*:\s*hidden", low)))
 
     return FeatureVector(version=FEATURE_VERSION, values=v)
 

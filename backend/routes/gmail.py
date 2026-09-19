@@ -60,6 +60,19 @@ def _safe_return_path(origin: Optional[str]) -> str:
     return "/dashboard"
 
 
+def _mark_processed(db, user_id: str, message_id: str, investigation_id: str) -> None:
+    """Records the Gmail message id so the real-time monitor never re-processes it."""
+    from app.models.processed_email import ProcessedEmail
+    try:
+        if not db.query(ProcessedEmail.id).filter(ProcessedEmail.user_id == user_id,
+                                                  ProcessedEmail.provider_message_id == message_id).first():
+            db.add(ProcessedEmail(user_id=user_id, provider="gmail", provider_message_id=message_id,
+                                  investigation_id=investigation_id, status="ANALYZED"))
+            db.commit()
+    except Exception:
+        db.rollback()
+
+
 def _frontend_url(path: str) -> str:
     return (_settings.FRONTEND_URL or "").rstrip("/") + path
 
@@ -322,25 +335,22 @@ async def analyze_gmail_message(
         raise HTTPException(status_code=404, detail="Email could not be acquired from Gmail API.")
 
     parsed = parse_eml_bytes(raw_bytes)
-
-    # Lazy import to avoid Keras/TF loading at startup
     from routes.analysis import _process_analysis
-    analysis_res = await _process_analysis(parsed, current_user=current_user, db=db)
+    analysis_res = await _process_analysis(parsed, current_user=current_user, db=db,
+                                           filename=f"gmail_{message_id}.eml", source="GMAIL_MANUAL")
+    _mark_processed(db, current_user.id, message_id, analysis_res.analysis_id)
 
-    investigation = create_investigation(
-        db=db,
-        raw_bytes=raw_bytes,
-        original_filename=f"gmail_{message_id}.eml",
-        mime_type="message/rfc822",
-        created_by=current_user.email,
-        user_id=current_user.id,          # strict user ownership
-    )
-    run_analysis(db, investigation.id, raw_bytes)
-
+    # Mailbox changes are OPT-IN (GMAIL_AUTO_QUARANTINE=true) and only for CRITICAL results.
     quarantined = False
-    if analysis_res.risk.score >= 61:
-        await session.quarantine_message(message_id)
-        quarantined = True
+    if _settings.GMAIL_AUTO_QUARANTINE and analysis_res.risk.score >= 75:
+        try:
+            await session.quarantine_message(message_id)
+            quarantined = True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Auto-quarantine failed: %s", type(exc).__name__)
+
+    from app.models.investigation import Investigation as _Inv
+    investigation = db.get(_Inv, analysis_res.analysis_id)
 
     return {
         "analysis": analysis_res,
@@ -349,7 +359,6 @@ async def analyze_gmail_message(
         "quarantined": quarantined,
         "evidence_hash": hashlib.sha256(raw_bytes).hexdigest(),
         "source": "GMAIL_OAUTH_ACQUISITION",
-        "user_id": current_user.id,
     }
 
 

@@ -104,7 +104,7 @@ def extract_urls(text_body: str, html_body: str) -> List[URLFinding]:
             if key in seen:
                 continue
             seen.add(key)
-            findings.append(_build_finding(href, "html_body", anchor_text or None))
+            _safe_append(findings, _build_finding, (href, "html_body", anchor_text or None))
 
         for match in _URL_RE.findall(html_body):
             url = match if match.lower().startswith("http") else f"http://{match}"
@@ -112,7 +112,7 @@ def extract_urls(text_body: str, html_body: str) -> List[URLFinding]:
             if key in seen:
                 continue
             seen.add(key)
-            findings.append(_build_finding(url, "html_body", None))
+            _safe_append(findings, _build_finding, (url, "html_body", None))
 
     if text_body:
         for match in _URL_RE.findall(text_body):
@@ -121,9 +121,17 @@ def extract_urls(text_body: str, html_body: str) -> List[URLFinding]:
             if key in seen:
                 continue
             seen.add(key)
-            findings.append(_build_finding(url, "text_body", None))
+            _safe_append(findings, _build_finding, (url, "text_body", None))
 
     return findings
+
+
+def _safe_append(findings: List[URLFinding], fn, args) -> None:
+    """Malformed URLs (e.g. broken IPv6 brackets, common in phishing) must never abort the analysis."""
+    try:
+        findings.append(fn(*args))
+    except (ValueError, UnicodeError):
+        pass
 
 
 def _build_finding(raw_url: str, source_location: str, anchor_text: Optional[str]) -> URLFinding:

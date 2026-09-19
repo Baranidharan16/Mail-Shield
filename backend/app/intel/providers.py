@@ -55,18 +55,11 @@ class LocalHeuristicIPProvider(IPIntelligenceProvider):
         except ValueError:
             return IntelResult(indicator=ip_address, indicator_type="ip", provider=self.name, available=False, error="Invalid IP address")
 
-        # Check documentation/demo ranges FIRST: Python's ipaddress module
-        # classifies RFC 5737 TEST-NET ranges (used throughout this
-        # platform's synthetic fixtures) as `is_private`, which would
-        # otherwise short-circuit them into the generic private/reserved
-        # bucket below before we ever get to show the demo data.
-        for cidr, meta in _DEMO_IP_RANGES.items():
+        for cidr in _DEMO_IP_RANGES:
             if ip_obj in ipaddress.ip_network(cidr):
                 return IntelResult(
-                    indicator=ip_address, indicator_type="ip", provider=self.name, available=True,
-                    data={**meta, "note": "SYNTHETIC DEMONSTRATION DATA - this IP falls in an RFC 5737 documentation range used by this platform's test fixtures."},
-                    risk_score=35.0,
-                    is_synthetic_demo_data=True,
+                    indicator=ip_address, indicator_type="ip", provider=self.name, available=False,
+                    error="RFC 5737 documentation/test address - not a real internet host; no intelligence applies.",
                 )
 
         if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
@@ -76,10 +69,24 @@ class LocalHeuristicIPProvider(IPIntelligenceProvider):
                 risk_score=0.0,
             )
 
+        geo = get_geoip_provider().lookup_geo(ip_address)
+        if not geo.get("available"):
+            return IntelResult(indicator=ip_address, indicator_type="ip", provider=self.name, available=False,
+                               error=geo.get("reason"))
+        risk = 0.0
+        notes = []
+        if geo.get("proxy"):
+            risk = 50.0
+            notes.append("IP is flagged by the GeoIP provider as a proxy/VPN/Tor exit.")
+        elif geo.get("network_category") == "HOSTING_OR_CLOUD":
+            risk = 20.0
+            notes.append("IP belongs to a hosting/cloud network (common for both legitimate senders and attackers).")
         return IntelResult(
-            indicator=ip_address, indicator_type="ip", provider=self.name, available=True,
-            data={"note": "No local heuristic data available for this public IP. Configure THREAT_INTEL_PROVIDER for live enrichment."},
-            risk_score=None,
+            indicator=ip_address, indicator_type="ip", provider="ip-api.com", available=True,
+            data={"asn": geo.get("asn"), "org": geo.get("org"), "country": geo.get("country"),
+                  "network_category": geo.get("network_category"), "proxy": geo.get("proxy"),
+                  "hosting": geo.get("hosting"), "note": " ".join(notes) or "No risk indicators from network ownership."},
+            risk_score=risk,
         )
 
 
@@ -149,72 +156,101 @@ class DNSDomainProvider(DomainIntelligenceProvider):
             )
 
 
+_KNOWN_PROVIDERS = {
+    "google": "Google", "microsoft": "Microsoft", "outlook": "Microsoft", "amazon": "Amazon (AWS/SES)",
+    "aws": "Amazon (AWS/SES)", "cloudflare": "Cloudflare", "yahoo": "Yahoo", "oath": "Yahoo",
+    "sendgrid": "Twilio SendGrid", "mailchimp": "Mailchimp", "mailgun": "Mailgun", "sparkpost": "SparkPost",
+    "zoho": "Zoho", "proofpoint": "Proofpoint", "mimecast": "Mimecast", "apple": "Apple",
+    "akamai": "Akamai", "fastly": "Fastly", "digitalocean": "DigitalOcean", "ovh": "OVH",
+    "hetzner": "Hetzner", "linode": "Akamai/Linode", "vultr": "Vultr", "contabo": "Contabo",
+}
+_MAIL_PLATFORMS = {"Google", "Microsoft", "Amazon (AWS/SES)", "Yahoo", "Twilio SendGrid", "Mailchimp",
+                   "Mailgun", "SparkPost", "Zoho", "Proofpoint", "Mimecast", "Apple"}
+
+
+def classify_network(org_text: str, hosting: bool = False, proxy: bool = False) -> dict:
+    """Classifies the network that owns an IP from its registered org/ASN text.
+    Returns {provider, category, location_caveat}. Purely descriptive."""
+    low = (org_text or "").lower()
+    provider = next((name for key, name in _KNOWN_PROVIDERS.items() if key in low), None)
+    if proxy:
+        category = "PROXY_VPN_OR_TOR"
+    elif provider in _MAIL_PLATFORMS:
+        category = "KNOWN_MAIL_OR_CLOUD_PLATFORM"
+    elif provider or hosting:
+        category = "HOSTING_OR_CLOUD"
+    elif org_text:
+        category = "ISP_OR_ORGANISATION"
+    else:
+        category = "UNKNOWN"
+    caveat = None
+    if category in ("KNOWN_MAIL_OR_CLOUD_PLATFORM", "HOSTING_OR_CLOUD", "PROXY_VPN_OR_TOR"):
+        caveat = ("This IP belongs to " + (provider or "a hosting/proxy network") + "; its location is that of "
+                  "the service's infrastructure (data centre / edge), NOT the physical location of the sender.")
+    return {"provider": provider, "category": category, "location_caveat": caveat}
+
+
 class GeoIPProvider:
     """
-    Real geolocation via ip-api.com (free tier, no API key required).
-    Rate limited to 45 req/min. Fails gracefully per resilience requirement.
+    IP -> approximate geolocation + network ownership via ip-api.com
+    (free tier, no key, 45 req/min). Results are cached in-process.
 
-    IMPORTANT: Results are labeled 'Probable infrastructure geolocation'.
-    Never claim this identifies the physical location of an attacker.
-    Received-header IPs reflect mail relay infrastructure, not the sender.
+    Accuracy: country-level is usually right; region/city for hosting,
+    mobile and proxy networks is frequently wrong. Coordinates are the
+    approximate centre of the city/region, never a street address.
+    Never used to locate a person; only to describe infrastructure
+    observed in an e-mail's own headers.
     """
     name = "geoip_ipapi"
-    _ENDPOINT = "http://ip-api.com/json/{ip}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,isp,org,as,query,hosting"
+    _ENDPOINT = ("http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,region,regionName,"
+                 "city,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query")
+    _cache: dict = {}
 
     def lookup_geo(self, ip_address: str) -> dict:
         try:
             import ipaddress as _ip
             ip_obj = _ip.ip_address(ip_address)
-            # Skip private/reserved - no public geo applies
             for cidr in _DEMO_IP_RANGES:
                 if ip_obj in _ip.ip_network(cidr):
-                    demo = _DEMO_IP_RANGES[cidr]
-                    return {
-                        "available": True,
-                        "is_synthetic_demo_data": True,
-                        "country": demo.get("country", "Demo Country"),
-                        "country_code": "ZZ",
-                        "city": "Demo City",
-                        "region": "Demo Region",
-                        "isp": demo.get("org", "Demo ISP"),
-                        "asn": demo.get("asn", "AS64511"),
-                        "lat": 0.0,
-                        "lon": 0.0,
-                        "hosting": True,
-                        "disclaimer": "SYNTHETIC DEMONSTRATION DATA — not a real geolocation.",
-                        "label": "Probable infrastructure geolocation (SYNTHETIC)",
-                    }
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
-                return {"available": False, "reason": "Private/reserved address — no geolocation applicable."}
+                    return {"available": False, "reason": "RFC 5737 documentation/test address — not routable on the internet; no geolocation exists."}
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local:
+                return {"available": False, "reason": "Private/internal address — belongs to a mail provider's internal network; no public geolocation."}
         except ValueError:
             return {"available": False, "reason": "Invalid IP address"}
 
+        if ip_address in self._cache:
+            return self._cache[ip_address]
         try:
             import requests as _req
-            resp = _req.get(
-                self._ENDPOINT.format(ip=ip_address),
-                timeout=3.0,
-            )
+            resp = _req.get(self._ENDPOINT.format(ip=ip_address), timeout=4.0)
             resp.raise_for_status()
             d = resp.json()
             if d.get("status") != "success":
-                return {"available": False, "reason": d.get("message", "ip-api returned non-success status")}
-            return {
+                return {"available": False, "reason": d.get("message", "GeoIP service returned no data")}
+            net = classify_network(" ".join(filter(None, [d.get("org"), d.get("isp"), d.get("as"), d.get("asname")])),
+                                   hosting=bool(d.get("hosting")), proxy=bool(d.get("proxy")))
+            out = {
                 "available": True,
                 "is_synthetic_demo_data": False,
-                "country": d.get("country"),
-                "country_code": d.get("countryCode"),
-                "region": d.get("regionName"),
-                "city": d.get("city"),
-                "isp": d.get("isp"),
-                "org": d.get("org"),
-                "asn": d.get("as"),
-                "lat": d.get("lat"),
-                "lon": d.get("lon"),
-                "hosting": d.get("hosting", False),
-                "disclaimer": "Probable infrastructure geolocation — this reflects observed mail relay infrastructure, NOT the physical location of the sender or attacker.",
+                "source": "ip-api.com",
+                "country": d.get("country"), "country_code": d.get("countryCode"),
+                "region": d.get("regionName"), "city": d.get("city"),
+                "lat": d.get("lat"), "lon": d.get("lon"), "timezone": d.get("timezone"),
+                "isp": d.get("isp"), "org": d.get("org"), "asn": d.get("as"), "as_name": d.get("asname"),
+                "reverse_dns": d.get("reverse") or None,
+                "hosting": bool(d.get("hosting")), "proxy": bool(d.get("proxy")), "mobile": bool(d.get("mobile")),
+                "network_provider": net["provider"], "network_category": net["category"],
+                "location_caveat": net["location_caveat"],
+                "accuracy_note": "Approximate: country-level is generally reliable; region/city is an estimate "
+                                 "and coordinates are a city/region centroid.",
+                "disclaimer": "Probable infrastructure geolocation — reflects network infrastructure observed in the "
+                              "e-mail path, NOT the physical location or identity of the sender.",
                 "label": "Probable infrastructure geolocation",
             }
+            if len(self._cache) > 5000:
+                self._cache.clear()
+            self._cache[ip_address] = out
+            return out
         except Exception as exc:  # noqa: BLE001
             return {"available": False, "reason": f"GeoIP lookup unavailable: {type(exc).__name__}"}
 

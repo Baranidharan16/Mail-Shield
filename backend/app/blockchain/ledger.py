@@ -90,3 +90,70 @@ def verify_evidence_for_case(db: Session, case_id: str, current_evidence_hash: s
         "report_hash_match": report_match,
         "chain_intact": chain_result["verified"],
     }
+
+
+def canonical_report_hash(report_json) -> str:
+    """SHA-256 over a canonical JSON serialisation (sorted keys) of the stored report."""
+    normalised = json.loads(json.dumps(report_json, default=str))
+    return hashlib.sha256(json.dumps(normalised, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def verify_investigation_integrity(db: Session, investigation) -> dict:
+    """
+    Real tamper check: RE-CALCULATES the hashes of the current evidence file and
+    the current stored forensic report, and compares them with the values
+    anchored in the hash-chain ledger when the analysis finished.
+    """
+    import os
+    from app.core.config import get_settings
+    block = (db.query(BlockchainBlock).filter(BlockchainBlock.case_id == investigation.case_id)
+             .order_by(BlockchainBlock.block_index.desc()).first())
+    if not block:
+        return {"anchored": False, "status": "NOT_ANCHORED",
+                "message": "No ledger anchor exists for this case (analysis not completed yet)."}
+
+    # 1) evidence file
+    path = os.path.join(os.path.abspath(get_settings().UPLOAD_STORAGE_DIR), investigation.filename or "")
+    if os.path.isfile(path):
+        with open(path, "rb") as fh:
+            current_evidence = hashlib.sha256(fh.read()).hexdigest()
+        evidence_status = "VALID" if current_evidence == block.evidence_hash else "MODIFIED"
+    else:
+        current_evidence = None
+        evidence_status = "FILE_UNAVAILABLE"
+
+    # 2) forensic report
+    rep = investigation.report.report_json if getattr(investigation, "report", None) else None
+    if rep is None:
+        report_status, current_report = "REPORT_MISSING", None
+    else:
+        current_report = canonical_report_hash(rep)
+        legacy = hashlib.sha256(str(rep).encode("utf-8")).hexdigest()
+        report_status = "VALID" if block.report_hash in (current_report, legacy) else "MODIFIED"
+
+    chain = verify_chain(db)
+    modified = "MODIFIED" in (evidence_status, report_status) or not chain["verified"]
+    return {
+        "anchored": True,
+        "status": "MODIFIED" if modified else "VALID",
+        "verified": not modified,
+        "evidence_hash_match": evidence_status != "MODIFIED",
+        "report_hash_match": report_status == "VALID",
+        "chain_intact": chain["verified"],
+        "block_index": block.block_index,
+        "anchored_at": block.timestamp,
+        "message": ("Integrity VALID — recalculated report hash" + (" and evidence-file hash" if current_evidence else "")
+                    + " match the ledger anchor." if not modified else
+                    "Integrity MODIFIED — the current data no longer matches what was anchored."),
+        "evidence_file": {"status": evidence_status, "anchored_hash": block.evidence_hash, "current_hash": current_evidence,
+                          "note": None if current_evidence else "Raw evidence file is not on this server's disk "
+                                  "(ephemeral storage); the report and chain were still verified."},
+        "forensic_report": {"status": report_status, "anchored_hash": block.report_hash, "current_hash": current_report},
+        "ledger": {"block_index": block.block_index, "block_hash": block.block_hash, "previous_hash": block.previous_hash,
+                   "anchored_at": block.timestamp, "chain_intact": chain["verified"], "chain_message": chain["message"]},
+        "what_is_on_the_ledger": "Only case ID, SHA-256 of the evidence file, SHA-256 of the forensic report, timestamp, "
+                                 "previous block hash and block hash. No e-mail content, addresses, tokens or personal data.",
+        "scope_note": "This is a tamper-evident hash-chain ledger stored in the platform database (blockchain-style "
+                      "linking). It proves records were not altered after analysis; it does not encrypt or hide the "
+                      "e-mail data itself, and it is not a public blockchain.",
+    }

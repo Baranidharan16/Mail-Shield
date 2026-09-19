@@ -1,0 +1,28 @@
+From: "GitHub" <noreply@github.com>
+To: arun@gmail.com
+List-ID: Baranidharan16/sih-email-forensics-full <sih-email-forensics-full.Baranidharan16.github.com>
+List-Unsubscribe: <https://github.com/notifications/unsubscribe/abc>
+Subject:
+ [Baranidharan16/sih-email-forensics-full] Run failed: CI - main (c313e89)
+Date: Sat, 19 Sep 2026 09:00:00 +0000
+Message-ID: <gh10@github.com>
+Received: from out-21.smtp.github.com (out-21.smtp.github.com
+ [192.30.252.204]) by mx.google.com with ESMTPS id x1; Sat, 19 Sep 2026
+ 09:00:02 +0000
+Authentication-Results: mx.google.com; dkim=pass header.i=@github.com;
+ spf=pass smtp.mailfrom=github.com; dmarc=pass header.from=github.com
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+RUN FAILED!!!
+
+    job: build (ubuntu-latest)
+    step: pytest
+    =3D=3D=3D=3D=3D=3D  3 failed, 51 passed  =3D=3D=3D=3D=3D=3D
+
+View workflow run: https://github.com/Baranidharan16/sih-email-forensics-full=
+/actions/runs/123
+
+--=20
+You are receiving this because you are subscribed to this thread.

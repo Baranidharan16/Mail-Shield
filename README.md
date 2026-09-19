@@ -222,6 +222,10 @@ docker-compose up --build
 
 ---
 
+## 🔬 v2: Real-time detection & forensic verdict
+
+See **[docs/FORENSIC_PLATFORM_V2.md](docs/FORENSIC_PLATFORM_V2.md)** for the pipeline, models, evaluation results, forensic verdict, geolocation, ledger, privacy and retraining guide.
+
 ## 🧭 Local Development (new laptop)
 
 1. Install **Python 3.12**, **Node.js 20+**, **Git**.

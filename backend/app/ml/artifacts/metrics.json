@@ -1,0 +1,108 @@
+{
+  "dataset": "phishing_pot+spamassassin_ham+enron_ham",
+  "sources": {
+    "/tmp/claude-0/data/phish": {
+      "label": "PHISHING",
+      "files": 3000,
+      "kept": 2636,
+      "rejected_or_duplicate": 364
+    },
+    "/tmp/claude-0/data/ham": {
+      "label": "LEGITIMATE",
+      "files": 3900,
+      "kept": 3860,
+      "rejected_or_duplicate": 40
+    },
+    "/tmp/claude-0/data/hardham": {
+      "label": "LEGITIMATE",
+      "files": 250,
+      "kept": 250,
+      "rejected_or_duplicate": 0
+    },
+    "/tmp/claude-0/data/enronham": {
+      "label": "LEGITIMATE (text model only)",
+      "files": 4000,
+      "kept": 3930,
+      "rejected_or_duplicate": 70
+    }
+  },
+  "seed": 42,
+  "split": {
+    "train": 4722,
+    "validation": 1012,
+    "test": 1012,
+    "text_only_ham": {
+      "train": 2751,
+      "validation": 589,
+      "test": 590
+    }
+  },
+  "excluded_features": {
+    "from_returnpath_mismatch": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "auth_data_available": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "spf_fail": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "spf_softfail": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "dkim_fail": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "dmarc_fail": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "dkim_domain_misaligned": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "received_hop_count": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "received_hops_missing": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "received_hop_ip_unresolved_ratio": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "message_id_missing": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "message_id_domain_mismatch": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "header_anomaly_count": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "header_anomaly_max_severity": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "sender_domain_is_freemail": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "multiple_unrelated_domains": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "domain_count_analyzed": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "avg_domain_risk_score": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "max_domain_risk_score": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "any_hop_ip_private": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "ip_address_count": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "subject_length": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "subject_has_re_fwd": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "body_word_count_log": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "html_only_body": "header/routing/formatting artefact of the training corpora (handled by the rule engine)",
+    "hidden_text_html": "header/routing/formatting artefact of the training corpora (handled by the rule engine)"
+  },
+  "structured_model": {
+    "test": {
+      "threshold": 0.71,
+      "n": 1602,
+      "precision": 0.928,
+      "recall": 0.8481,
+      "f1": 0.8862,
+      "roc_auc": 0.9847,
+      "false_positive_rate": 0.0215,
+      "false_negative_rate": 0.1519,
+      "confusion_matrix": {
+        "tn": 1181,
+        "fp": 26,
+        "fn": 60,
+        "tp": 335
+      }
+    },
+    "hard_ham_false_positive_rate": 0.0526,
+    "business_ham_false_positive_rate": 0.0
+  },
+  "text_model": {
+    "test": {
+      "threshold": 0.44,
+      "n": 1602,
+      "precision": 0.9848,
+      "recall": 0.9823,
+      "f1": 0.9835,
+      "roc_auc": 0.9997,
+      "false_positive_rate": 0.005,
+      "false_negative_rate": 0.0177,
+      "confusion_matrix": {
+        "tn": 1201,
+        "fp": 6,
+        "fn": 7,
+        "tp": 388
+      }
+    },
+    "hard_ham_false_positive_rate": 0.0789,
+    "business_ham_false_positive_rate": 0.0051
+  }
+}

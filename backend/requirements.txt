@@ -14,9 +14,9 @@ python-dotenv>=1.0.0
 # Deep Learning & ML Inference (MailShield Models)
 tensorflow>=2.18.0
 keras>=3.5.0
-numpy>=1.26.0
-scikit-learn>=1.3.0
-joblib>=1.3.0
+numpy>=2.0,<3
+scikit-learn==1.9.1  # must match the version used to train app/ml/artifacts
+joblib>=1.4
 
 # AI Reasoning Layer
 google-genai>=1.0.0
