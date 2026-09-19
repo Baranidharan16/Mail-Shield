@@ -73,12 +73,9 @@ async def create_investigation(
 
 def _check_investigation_access(investigation: Investigation, current_user: Optional[User]) -> None:
     """Strict user isolation: if an investigation is owned by a user, only that user may access it."""
-    if investigation.user_id:
-        if not current_user or current_user.id != investigation.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden: You do not have permission to access this investigation.",
-            )
+    if not current_user or investigation.user_id != current_user.id:
+        # 404 (not 403) so other users' investigation ids cannot be probed
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investigation not found")
 
 
 @router.post("/{investigation_id}/analyze", response_model=InvestigationCreateResponse)
@@ -126,7 +123,7 @@ def list_investigations(
         q = q.filter(Investigation.user_id == current_user.id)
     else:
         # Unauthenticated users only see public unassigned demo cases
-        q = q.filter(Investigation.user_id.is_(None))
+        q = q.filter(Investigation.id.is_(None))  # unauthenticated: nothing
 
     rows = (
         q.order_by(Investigation.created_at.desc())
@@ -258,6 +255,7 @@ def get_campaign(
             {"investigation_id": m.investigation_id, "case_id": db.get(Investigation, m.investigation_id).case_id,
              "similarity_score": m.similarity_score, "relationship_label": m.relationship_label, "reasons": m.reasons}
             for m in campaign.members
+            if (db.get(Investigation, m.investigation_id) or Investigation()).user_id == current_user.id
         ],
     }
 

@@ -46,3 +46,7 @@ Thumbs.db
 # Local subfolder development copy
 sih-email-forensics/
 scratch/
+
+# SQLite WAL side-files
+*.db-shm
+*.db-wal

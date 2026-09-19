@@ -26,6 +26,8 @@ from app.forensic.demo_scenarios import DEMO_SCENARIOS, get_scenario_by_id
 from app.intel.global_correlation import get_global_campaigns_list, get_global_threat_graph
 from app.models.investigation import AuditLog, Investigation, BlockchainBlock
 from app.services import investigation_service
+from app.models.user import User
+from utils.auth_deps import get_current_user
 
 settings = get_settings()
 router = APIRouter(prefix="/system", tags=["system-observability"])
@@ -44,7 +46,7 @@ class ActionRequest(BaseModel):
 
 
 @router.get("/performance")
-def get_system_performance(db: Session = Depends(get_db)):
+def get_system_performance(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Returns real-time platform latency benchmarks and autonomous agent status.
     Implements the Performance / Lag Audit requirement of SIH 26106.
@@ -53,8 +55,9 @@ def get_system_performance(db: Session = Depends(get_db)):
 
     # 1. Database benchmark
     t0 = time.perf_counter()
-    case_count = db.query(Investigation).count()
-    completed_count = db.query(Investigation).filter(Investigation.status == "COMPLETED").count()
+    mine = db.query(Investigation).filter(Investigation.user_id == current_user.id)
+    case_count = mine.count()
+    completed_count = mine.filter(Investigation.status == "COMPLETED").count()
     db_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
 
     # 2. Blockchain ledger integrity check benchmark
@@ -125,7 +128,11 @@ def list_demo_scenarios():
 
 
 @router.post("/load-scenario")
-def load_and_analyze_scenario(payload: LoadScenarioRequest, db: Session = Depends(get_db)):
+def load_and_analyze_scenario(
+    payload: LoadScenarioRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Ingest and execute full forensic analysis on a selected demonstration threat.
     Returns the completed investigation details immediately.
@@ -143,7 +150,8 @@ def load_and_analyze_scenario(payload: LoadScenarioRequest, db: Session = Depend
         eml_bytes,
         filename,
         "message/rfc822",
-        created_by="sih_demo_loader",
+        created_by=current_user.email,
+        user_id=current_user.id,
     )
 
     # Run analysis synchronously for instant demo experience
@@ -162,25 +170,29 @@ def load_and_analyze_scenario(payload: LoadScenarioRequest, db: Session = Depend
 
 
 @router.get("/campaigns")
-def get_campaigns(db: Session = Depends(get_db)):
-    """Return all discovered multi-case threat campaigns."""
-    return get_global_campaigns_list(db)
+def get_campaigns(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Return threat campaigns discovered across the current user's cases."""
+    return get_global_campaigns_list(db, user_id=current_user.id)
 
 
 @router.get("/global-graph")
-def get_global_graph(db: Session = Depends(get_db)):
-    """Return unified cross-case attack and IOC correlation graph."""
-    return get_global_threat_graph(db)
+def get_global_graph(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Return the cross-case attack/IOC correlation graph for the current user's cases."""
+    return get_global_threat_graph(db, user_id=current_user.id)
 
 
 @router.post("/action")
-def execute_threat_action(payload: ActionRequest, db: Session = Depends(get_db)):
+def execute_threat_action(
+    payload: ActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """
     Execute a containment or mailbox recommendation (QUARANTINE, MOVE_TO_PHISHING, MARK_SAFE).
     Logs the action in the tamper-evident audit log.
     """
     inv = db.get(Investigation, payload.investigation_id)
-    if not inv:
+    if not inv or inv.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Investigation not found")
 
     action_name = payload.action.upper()
@@ -194,7 +206,7 @@ def execute_threat_action(payload: ActionRequest, db: Session = Depends(get_db))
     # Audit log entry
     log_entry = AuditLog(
         investigation_id=inv.id,
-        actor="SOC_Analyst",
+        actor=current_user.email,
         action=f"MAILBOX_ACTION_{action_name}",
         detail=payload.analyst_note or f"Action {action_name} executed for case {inv.case_id}",
     )

@@ -25,16 +25,27 @@ from services.sarvam_service import is_sarvam_configured
 router = APIRouter(tags=["Health & Status"])
 
 
-@router.get("/health", response_model=HealthResponse)
-@router.get("/api/health", response_model=HealthResponse)
-@router.get("/api/v1/health", response_model=HealthResponse)
+@router.get("/health")
+@router.get("/api/health")
+@router.get("/api/v1/health")
 async def health_check():
-    """Returns application health status."""
-    return HealthResponse(
-        status="ok",
-        app_name="MAILSHIELD",
-        version="1.0.0",
-    )
+    """Liveness + database connectivity. Never exposes connection details."""
+    from sqlalchemy import text
+    from app.database.session import engine
+
+    db_status = "ok"
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "unavailable"
+    return {
+        "status": "ok" if db_status == "ok" else "degraded",
+        "app_name": "MAILSHIELD",
+        "version": "1.0.0",
+        "database": db_status,
+        "database_engine": engine.dialect.name,
+    }
 
 
 @router.get("/api/model-status", response_model=ModelStatusResponse)

@@ -233,7 +233,7 @@ def run_analysis(db: Session, investigation_id: str, raw_bytes: bytes) -> None:
         _set_stage("CORRELATION")
         target_domains = {d.domain for d in result.domain_findings}
         target_ips = {ip.ip_address for ip in result.ip_findings}
-        candidates = _build_campaign_candidates(db, exclude_id=investigation.id)
+        candidates = _build_campaign_candidates(db, exclude_id=investigation.id, user_id=investigation.user_id)
         campaign_matches = find_campaign_matches(target_domains, target_ips, text_blob, candidates)
         _persist_campaign_matches(db, investigation, campaign_matches)
 
@@ -324,11 +324,18 @@ def _log_audit(db: Session, investigation_id: str, action: str, detail: str = ""
     db.commit()
 
 
-def _build_campaign_candidates(db: Session, exclude_id: str) -> list:
+def _build_campaign_candidates(db: Session, exclude_id: str, user_id: Optional[str] = None) -> list:
+    """Only the SAME user's investigations are correlated (no cross-tenant leakage)."""
     candidates = []
+    if not user_id:
+        return candidates
     prior = (
         db.query(Investigation)
-        .filter(Investigation.status == "COMPLETED", Investigation.id != exclude_id)
+        .filter(
+            Investigation.status == "COMPLETED",
+            Investigation.id != exclude_id,
+            Investigation.user_id == user_id,
+        )
         .order_by(Investigation.created_at.desc())
         .limit(50)
         .all()

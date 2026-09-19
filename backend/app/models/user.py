@@ -40,6 +40,13 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    # Active login sessions (one per device/browser) — see app/models/auth_session.py
+    sessions = relationship(
+        "UserSession",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
     # 1-to-1 relationship with linked Gmail account (per-user OAuth isolation)
     gmail_account = relationship(
         "GmailAccount",

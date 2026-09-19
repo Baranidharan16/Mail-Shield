@@ -26,7 +26,7 @@ def get_timeline(
     if not inv:
         raise HTTPException(status_code=404, detail="Investigation not found")
 
-    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+    if not current_user or inv.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to view this timeline.")
 
     events = []

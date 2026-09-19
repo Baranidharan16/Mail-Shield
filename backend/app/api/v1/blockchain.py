@@ -8,6 +8,19 @@ from app.database.session import get_db
 from app.blockchain.ledger import verify_chain
 from app.blockchain.fabric_service import get_fabric_service
 from app.models.investigation import BlockchainBlock, Investigation
+from app.models.user import User
+from utils.auth_deps import get_current_user
+
+
+def _owned_investigation(db: Session, user: User, ref: str) -> Investigation:
+    """Resolve an investigation by id / case id / evidence hash, only within the caller's own cases."""
+    inv = db.query(Investigation).filter(
+        Investigation.user_id == user.id,
+        (Investigation.case_id == ref) | (Investigation.evidence_hash_sha256 == ref) | (Investigation.id == ref),
+    ).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Evidence not found in records.")
+    return inv
 
 logger = logging.getLogger("mailshield.api.blockchain")
 router = APIRouter(prefix="/blockchain", tags=["blockchain"])
@@ -21,9 +34,16 @@ def verify(db: Session = Depends(get_db)):
 
 
 @router.get("/blocks")
-def list_blocks(db: Session = Depends(get_db), limit: int = 100):
-    """Returns ledger blocks in reverse chronological order."""
-    blocks = db.query(BlockchainBlock).order_by(BlockchainBlock.block_index.desc()).limit(limit).all()
+def list_blocks(db: Session = Depends(get_db), limit: int = 100, current_user: User = Depends(get_current_user)):
+    """Returns the caller's ledger blocks in reverse chronological order."""
+    my_cases = db.query(Investigation.case_id).filter(Investigation.user_id == current_user.id)
+    blocks = (
+        db.query(BlockchainBlock)
+        .filter(BlockchainBlock.case_id.in_(my_cases))
+        .order_by(BlockchainBlock.block_index.desc())
+        .limit(max(1, min(limit, 500)))
+        .all()
+    )
     return [
         {
             "block_index": b.block_index,
@@ -43,34 +63,14 @@ def list_blocks(db: Session = Depends(get_db), limit: int = 100):
 @router.post("/register/{evidence_id}")
 def register_evidence_endpoint(
     evidence_id: str,
-    case_id: Optional[str] = None,
-    evidence_hash: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Registers an evidence hash onto Hyperledger Fabric / local cryptographic ledger."""
-    service = get_fabric_service()
-    
-    # If evidence_hash not provided directly, lookup from investigation
-    if not evidence_hash:
-        inv = db.query(Investigation).filter(
-            (Investigation.case_id == evidence_id) |
-            (Investigation.evidence_hash_sha256 == evidence_id) |
-            (Investigation.id == evidence_id)
-        ).first()
-        if inv:
-            evidence_hash = inv.evidence_hash_sha256
-            case_id = inv.case_id
-        else:
-            evidence_hash = evidence_id
-            case_id = case_id or f"CASE-{evidence_id[:8]}"
-
-    result = service.register_evidence(
-        db=db,
-        evidence_id=evidence_id,
-        case_id=case_id or f"CASE-{evidence_id[:8]}",
-        evidence_hash=evidence_hash,
+    """Registers the evidence hash of one of the caller's investigations on the ledger."""
+    inv = _owned_investigation(db, current_user, evidence_id)
+    return get_fabric_service().register_evidence(
+        db=db, evidence_id=inv.id, case_id=inv.case_id, evidence_hash=inv.evidence_hash_sha256,
     )
-    return result
 
 
 @router.get("/verify/{evidence_id}")
@@ -78,39 +78,21 @@ def verify_evidence_endpoint(
     evidence_id: str,
     evidence_hash: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Verifies evidence integrity against the immutable blockchain record."""
-    service = get_fabric_service()
-
-    # If hash not passed as query param, check investigation or block
-    if not evidence_hash:
-        inv = db.query(Investigation).filter(
-            (Investigation.case_id == evidence_id) |
-            (Investigation.evidence_hash_sha256 == evidence_id) |
-            (Investigation.id == evidence_id)
-        ).first()
-        if inv:
-            evidence_hash = inv.evidence_hash_sha256
-            case_id = inv.case_id
-        else:
-            block = db.query(BlockchainBlock).filter(
-                (BlockchainBlock.case_id == evidence_id) |
-                (BlockchainBlock.evidence_hash == evidence_id)
-            ).first()
-            if block:
-                evidence_hash = block.evidence_hash
-                case_id = block.case_id
-            else:
-                raise HTTPException(status_code=404, detail="Evidence not found in records.")
-    else:
-        case_id = evidence_id
-
-    return service.verify_evidence(db=db, case_id=case_id, current_evidence_hash=evidence_hash)
+    """Verifies integrity of one of the caller's evidence items against the ledger."""
+    inv = _owned_investigation(db, current_user, evidence_id)
+    return get_fabric_service().verify_evidence(
+        db=db, case_id=inv.case_id, current_evidence_hash=evidence_hash or inv.evidence_hash_sha256,
+    )
 
 
 @router.get("/case/{case_id}")
-def get_case_evidence_endpoint(case_id: str, db: Session = Depends(get_db)):
-    """Returns all blockchain blocks registered for a specific investigation case."""
+def get_case_evidence_endpoint(
+    case_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    """Returns all blockchain blocks registered for one of the caller's cases."""
+    _owned_investigation(db, current_user, case_id)
     service = get_fabric_service()
     return service.get_case_evidence(db=db, case_id=case_id)
 

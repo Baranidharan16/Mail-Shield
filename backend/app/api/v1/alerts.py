@@ -31,7 +31,7 @@ def list_alerts(
     if current_user:
         q = q.filter(Investigation.user_id == current_user.id)
     else:
-        q = q.filter(Investigation.user_id.is_(None))
+        q = q.filter(Investigation.id.is_(None))  # unauthenticated: nothing
     alerts = q.order_by(Alert.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
     out = []
     for a in alerts:

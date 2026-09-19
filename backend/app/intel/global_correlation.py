@@ -12,18 +12,20 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from typing import Any, Dict, List, Set
+from typing import Optional, Any, Dict, List, Set
 
 from sqlalchemy.orm import Session
 from app.models.investigation import Investigation, Campaign, CampaignMember
 
 
-def get_global_threat_graph(db: Session) -> Dict[str, Any]:
+def get_global_threat_graph(db: Session, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Build a unified multi-case correlation graph connecting:
     Cases <-> Domains <-> IPs <-> URLs <-> Attachment Hashes <-> Campaigns.
     """
-    investigations = db.query(Investigation).filter(Investigation.status == "COMPLETED").all()
+    investigations = db.query(Investigation).filter(
+        Investigation.status == "COMPLETED", Investigation.user_id == user_id
+    ).all()  # scoped to the requesting user
 
     nodes: List[Dict[str, Any]] = []
     links: List[Dict[str, Any]] = []
@@ -138,11 +140,13 @@ def get_global_threat_graph(db: Session) -> Dict[str, Any]:
     }
 
 
-def get_global_campaigns_list(db: Session) -> List[Dict[str, Any]]:
+def get_global_campaigns_list(db: Session, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Cluster and summarize campaigns across all completed investigations.
     """
-    investigations = db.query(Investigation).filter(Investigation.status == "COMPLETED").all()
+    investigations = db.query(Investigation).filter(
+        Investigation.status == "COMPLETED", Investigation.user_id == user_id
+    ).all()  # scoped to the requesting user
     if not investigations:
         return []
 

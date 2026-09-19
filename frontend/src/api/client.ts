@@ -1,4 +1,5 @@
 import axios from "axios";
+import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 import type {
   InvestigationCreateResponse,
   InvestigationDetail,
@@ -30,33 +31,118 @@ import type {
   AuthStatusResponse,
 } from "../types/auth";
 
-const BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (typeof window !== "undefined" && (window.location.port === "8000" || window.location.origin.includes(":8000"))
-    ? "/api/v1"
-    : "http://localhost:8000/api/v1");
+// API base URL.
+//  * Development: "/api/v1" — proxied by the Vite dev server (vite.config.ts).
+//  * Same-origin production (backend serves dist / nginx proxy): "/api/v1".
+//  * Split production: set VITE_API_BASE_URL=https://backend.example.com/api/v1 at build time.
+export const BASE_URL: string = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/+$/, "");
+export const API_ROOT: string = BASE_URL.replace(/\/api\/v1$/, "");
+const AUTH_URL = `${API_ROOT}/api/auth`;
+
+// Send the httpOnly refresh cookie on cross-origin requests too (split deployments).
+axios.defaults.withCredentials = true;
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
   timeout: 60000,
+  withCredentials: true,
 });
 
-// Attach JWT Bearer token automatically to every request if present
-apiClient.interceptors.request.use((config) => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("mailshield_token") : null;
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+// ── Access-token store ──────────────────────────────────────────────────────
+// The short-lived access token lives in memory only (not localStorage), so an
+// XSS bug cannot read a long-lived credential. The session survives page
+// reloads through the httpOnly refresh cookie (see refreshSession()).
+let accessToken: string | null = null;
 
-axios.interceptors.request.use((config) => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("mailshield_token") : null;
-  if (token && !config.headers.Authorization) {
-    config.headers.Authorization = `Bearer ${token}`;
+export function setAccessToken(token: string | null) {
+  accessToken = token;
+}
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
+// Remove credentials left behind by older versions of the app.
+try {
+  localStorage.removeItem("mailshield_token");
+  localStorage.removeItem("mailshield_user");
+} catch {
+  /* storage unavailable */
+}
+
+function attachToken(config: InternalAxiosRequestConfig) {
+  if (accessToken && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;
-});
+}
+apiClient.interceptors.request.use(attachToken);
+axios.interceptors.request.use(attachToken);
+
+// ── Silent refresh on 401 ───────────────────────────────────────────────────
+let refreshInFlight: Promise<AuthResponse> | null = null;
+
+/** Exchanges the refresh cookie for a new access token. Concurrent callers share one request. */
+export function refreshSession(): Promise<AuthResponse> {
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post<AuthResponse>(`${AUTH_URL}/refresh`, null, { withCredentials: true, timeout: 20000 })
+      .then(({ data }) => {
+        setAccessToken(data.access_token);
+        return data;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+/** Fired when the session can no longer be refreshed; AuthContext listens and signs out. */
+export const SESSION_EXPIRED_EVENT = "mailshield:session-expired";
+
+async function handleAuthError(error: AxiosError) {
+  const original = error.config as (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
+  const url = original?.url || "";
+  const isAuthCall = /\/auth\/(login|register|refresh|logout)/.test(url);
+  if (error.response?.status === 401 && original && !original._retried && !isAuthCall) {
+    original._retried = true;
+    try {
+      const { access_token } = await refreshSession();
+      original.headers.Authorization = `Bearer ${access_token}`;
+      return axios.request(original);
+    } catch {
+      setAccessToken(null);
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    }
+  }
+  return Promise.reject(error);
+}
+apiClient.interceptors.response.use((r) => r, handleAuthError);
+axios.interceptors.response.use((r) => r, handleAuthError);
+
+/** Turns any API error into a short, human-readable message. */
+export function getApiErrorMessage(err: unknown, fallback = "Something went wrong. Please try again."): string {
+  const e = err as AxiosError<{ detail?: unknown }>;
+  if (!e || !e.isAxiosError) return fallback;
+  if (!e.response) {
+    if (e.code === "ECONNABORTED") return "The server took too long to respond. Please try again.";
+    return "Cannot reach the MailShield server. Check that the backend is running and your connection is online.";
+  }
+  const { status, data } = e.response;
+  const detail = data?.detail;
+  if (Array.isArray(detail)) {
+    // FastAPI/Pydantic validation errors: [{loc, msg}, ...]
+    const msgs = detail
+      .map((d: any) => String(d?.msg || "").replace(/^Value error, /, ""))
+      .filter(Boolean);
+    if (msgs.length) return Array.from(new Set(msgs)).join(" ");
+  }
+  if (typeof detail === "string" && detail) return detail;
+  if (status === 503) return "The database is temporarily unavailable. Please try again shortly.";
+  if (status === 429) return "Too many attempts. Please wait a few minutes and try again.";
+  if (status >= 500) return "The server encountered an error. Please try again.";
+  return fallback;
+}
 
 // ── Authentication ──────────────────────────────────────────────────────────
 export async function registerUser(payload: {
@@ -65,35 +151,71 @@ export async function registerUser(payload: {
   password: string;
   confirm_password: string;
 }): Promise<AuthResponse> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
-  const { data } = await axios.post<AuthResponse>(`${rootUrl}/api/auth/register`, payload);
+  const { data } = await axios.post<AuthResponse>(`${AUTH_URL}/register`, payload);
+  setAccessToken(data.access_token);
   return data;
 }
 
 export async function loginUser(payload: {
   email: string;
   password: string;
+  remember_me?: boolean;
 }): Promise<AuthResponse> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
-  const { data } = await axios.post<AuthResponse>(`${rootUrl}/api/auth/login`, payload);
+  const { data } = await axios.post<AuthResponse>(`${AUTH_URL}/login`, payload);
+  setAccessToken(data.access_token);
   return data;
 }
 
 export async function logoutUser(): Promise<{ message: string }> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
-  const { data } = await apiClient.post<{ message: string }>(`${rootUrl}/api/auth/logout`);
+  try {
+    const { data } = await axios.post<{ message: string }>(`${AUTH_URL}/logout`);
+    return data;
+  } finally {
+    setAccessToken(null);
+  }
+}
+
+export async function logoutAllDevices(): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`${AUTH_URL}/logout-all`);
+  setAccessToken(null);
   return data;
 }
 
 export async function getCurrentUser(): Promise<UserProfile> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
-  const { data } = await apiClient.get<UserProfile>(`${rootUrl}/api/auth/me`);
+  const { data } = await apiClient.get<UserProfile>(`${AUTH_URL}/me`);
+  return data;
+}
+
+export async function updateProfile(name: string): Promise<UserProfile> {
+  const { data } = await apiClient.patch<UserProfile>(`${AUTH_URL}/me`, { name });
+  return data;
+}
+
+export async function changePassword(payload: {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(`${AUTH_URL}/change-password`, payload);
+  return data;
+}
+
+export async function requestPasswordReset(email: string): Promise<{ message: string }> {
+  const { data } = await axios.post<{ message: string }>(`${AUTH_URL}/forgot-password`, { email });
+  return data;
+}
+
+export async function resetPassword(payload: {
+  token: string;
+  new_password: string;
+  confirm_password: string;
+}): Promise<{ message: string }> {
+  const { data } = await axios.post<{ message: string }>(`${AUTH_URL}/reset-password`, payload);
   return data;
 }
 
 export async function getAuthStatus(): Promise<AuthStatusResponse> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
-  const { data } = await apiClient.get<AuthStatusResponse>(`${rootUrl}/api/auth/status`);
+  const { data } = await apiClient.get<AuthStatusResponse>(`${AUTH_URL}/status`);
   return data;
 }
 
@@ -559,7 +681,7 @@ export async function analyzeEmailDirect(file: File): Promise<MailShieldAnalysis
   const form = new FormData();
   form.append("file", file);
   // Using relative path or base url compatible with /api/analyze-email
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
+  const rootUrl = API_ROOT;
   const targetUrl = `${rootUrl}/api/analyze-email`;
   const { data } = await axios.post<MailShieldAnalysisResponse>(targetUrl, form, {
     headers: { "Content-Type": "multipart/form-data" },
@@ -572,7 +694,7 @@ export async function analyzeRawTextDirect(rawText: string, subject?: string): P
   const form = new FormData();
   form.append("raw_text", rawText);
   if (subject) form.append("subject", subject);
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
+  const rootUrl = API_ROOT;
   const targetUrl = `${rootUrl}/api/analyze-email`;
   const { data } = await axios.post<MailShieldAnalysisResponse>(targetUrl, form, {
     headers: { "Content-Type": "multipart/form-data" },
@@ -582,7 +704,7 @@ export async function analyzeRawTextDirect(rawText: string, subject?: string): P
 }
 
 export async function getModelStatus(): Promise<ModelStatusResponse> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
+  const rootUrl = API_ROOT;
   const { data } = await axios.get<ModelStatusResponse>(`${rootUrl}/api/model-status`);
   return data;
 }
@@ -593,7 +715,7 @@ export async function postAssistantChat(
   history?: any[],
   language: string = "en-IN",
 ): Promise<{ answer: string; engine: string; language: string; sources?: string[] }> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
+  const rootUrl = API_ROOT;
   const { data } = await axios.post<{ answer: string; engine: string; language: string; sources?: string[] }>(
     `${rootUrl}/api/assistant/chat`,
     { question, context, history, language }
@@ -608,7 +730,7 @@ export async function postAssistantTranscribe(
   const form = new FormData();
   form.append("file", audioBlob, "recording.wav");
   if (languageCode) form.append("language_code", languageCode);
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
+  const rootUrl = API_ROOT;
   const { data } = await axios.post<{ transcript: string; language_code: string; language_name: string; confidence: number; engine: string }>(
     `${rootUrl}/api/assistant/transcribe`,
     form,
@@ -622,7 +744,7 @@ export async function postAssistantSpeak(
   language: string = "en-IN",
   voice: string = "priya",
 ): Promise<{ audio_base64: string; format: string; engine: string; language_code: string; language_name: string }> {
-  const rootUrl = BASE_URL.replace(/\/api\/v1\/?$/, "");
+  const rootUrl = API_ROOT;
   const { data } = await axios.post<{ audio_base64: string; format: string; engine: string; language_code: string; language_name: string }>(
     `${rootUrl}/api/assistant/speak`,
     { text, language, voice }

@@ -40,7 +40,7 @@ def list_cases(
     if current_user:
         q = q.filter(Investigation.user_id == current_user.id)
     else:
-        q = q.filter(Investigation.user_id.is_(None))
+        q = q.filter(Investigation.id.is_(None))  # unauthenticated: nothing
 
     if status:
         q = q.filter(Investigation.case_status == status.upper())
@@ -58,7 +58,7 @@ def get_case(
     if not inv:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+    if not current_user or inv.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to view this case.")
 
     return _case_summary(inv)
@@ -76,7 +76,7 @@ def update_case(
     if not inv:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+    if not current_user or inv.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to modify this case.")
 
 
@@ -115,7 +115,7 @@ def get_chain_of_custody(
     if not inv:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    if inv.user_id and (not current_user or current_user.id != inv.user_id):
+    if not current_user or inv.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to view this case chain of custody.")
 
     audit = (

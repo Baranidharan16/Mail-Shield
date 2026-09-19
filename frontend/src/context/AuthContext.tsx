@@ -1,18 +1,25 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { UserProfile } from "../types/auth";
 import {
   loginUser as apiLogin,
   registerUser as apiRegister,
   logoutUser as apiLogout,
   getCurrentUser as apiGetCurrentUser,
+  refreshSession,
+  setAccessToken,
+  getAccessToken,
+  SESSION_EXPIRED_EVENT,
 } from "../api/client";
 
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
   isAuthenticated: boolean;
+  /** true only while the initial session check runs on page load */
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** set when the user was signed out because the session expired */
+  sessionExpired: boolean;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   register: (name: string, email: string, password: string, confirm_password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -21,104 +28,86 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(() => {
-    try {
-      const cached = localStorage.getItem("mailshield_user");
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
-  const [token, setToken] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem("mailshield_token");
-    } catch {
-      return null;
-    }
-  });
+  const clearSession = useCallback(() => {
+    setAccessToken(null);
+    setUser(null);
+    setToken(null);
+  }, []);
 
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-
-  // Validate session on mount
+  // On page load / new tab: restore the session from the httpOnly refresh cookie.
   useEffect(() => {
     let mounted = true;
-    async function restoreSession() {
-      const storedToken = localStorage.getItem("mailshield_token");
-      if (!storedToken) {
+    refreshSession()
+      .then((res) => {
+        if (!mounted) return;
+        setToken(res.access_token);
+        setUser(res.user);
+      })
+      .catch(() => {
+        if (mounted) clearSession(); // no/expired session, or server unreachable
+      })
+      .finally(() => {
         if (mounted) setIsLoading(false);
-        return;
-      }
-
-      try {
-        const profile = await apiGetCurrentUser();
-        if (mounted) {
-          setUser(profile);
-          localStorage.setItem("mailshield_user", JSON.stringify(profile));
-        }
-      } catch (err) {
-        console.warn("Session expired or invalid, logging out.");
-        if (mounted) {
-          setUser(null);
-          setToken(null);
-          localStorage.removeItem("mailshield_token");
-          localStorage.removeItem("mailshield_user");
-        }
-      } finally {
-        if (mounted) setIsLoading(false);
-      }
-    }
-
-    restoreSession();
+      });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [clearSession]);
 
-  async function login(email: string, password: string) {
-    setIsLoading(true);
-    try {
-      const res = await apiLogin({ email, password });
-      setToken(res.access_token);
-      setUser(res.user);
-      localStorage.setItem("mailshield_token", res.access_token);
-      localStorage.setItem("mailshield_user", JSON.stringify(res.user));
-    } finally {
-      setIsLoading(false);
-    }
+  // An API call got 401 and the refresh cookie was also rejected.
+  useEffect(() => {
+    const onExpired = () => {
+      clearSession();
+      setSessionExpired(true);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [clearSession]);
+
+  // Keep React state in sync when the API layer silently refreshes the token.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const current = getAccessToken();
+      if (current !== token && current) setToken(current);
+    }, 5000);
+    return () => clearInterval(t);
+  }, [token]);
+
+  async function login(email: string, password: string, rememberMe = false) {
+    const res = await apiLogin({ email, password, remember_me: rememberMe });
+    setSessionExpired(false);
+    setToken(res.access_token);
+    setUser(res.user);
   }
 
   async function register(name: string, email: string, password: string, confirm_password: string) {
-    setIsLoading(true);
-    try {
-      const res = await apiRegister({ name, email, password, confirm_password });
-      setToken(res.access_token);
-      setUser(res.user);
-      localStorage.setItem("mailshield_token", res.access_token);
-      localStorage.setItem("mailshield_user", JSON.stringify(res.user));
-    } finally {
-      setIsLoading(false);
-    }
+    const res = await apiRegister({ name, email, password, confirm_password });
+    setSessionExpired(false);
+    setToken(res.access_token);
+    setUser(res.user);
   }
 
   async function logout() {
     try {
-      await apiLogout().catch(() => {});
+      await apiLogout();
+    } catch {
+      /* server unreachable — still clear local state */
     } finally {
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem("mailshield_token");
-      localStorage.removeItem("mailshield_user");
+      clearSession();
+      setSessionExpired(false);
     }
   }
 
   async function refreshUser() {
     try {
-      const profile = await apiGetCurrentUser();
-      setUser(profile);
-      localStorage.setItem("mailshield_user", JSON.stringify(profile));
+      setUser(await apiGetCurrentUser());
     } catch {
-      // silent
+      /* handled by the 401 interceptor */
     }
   }
 
@@ -129,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         isAuthenticated: !!user && !!token,
         isLoading,
+        sessionExpired,
         login,
         register,
         logout,

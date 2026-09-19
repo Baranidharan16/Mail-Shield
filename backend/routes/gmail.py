@@ -45,6 +45,23 @@ from app.services.investigation_service import create_investigation, run_analysi
 from utils.auth_deps import get_optional_current_user, get_required_current_user
 
 import os
+from datetime import timedelta
+from urllib.parse import quote
+
+from app.core.config import get_settings
+
+_settings = get_settings()
+
+
+def _safe_return_path(origin: Optional[str]) -> str:
+    """Only same-site relative paths are allowed as post-OAuth destinations (no open redirect)."""
+    if origin and origin.startswith("/") and not origin.startswith("//") and "\\" not in origin:
+        return origin[:200]
+    return "/dashboard"
+
+
+def _frontend_url(path: str) -> str:
+    return (_settings.FRONTEND_URL or "").rstrip("/") + path
 
 logger = logging.getLogger("mailshield.routes.gmail")
 router = APIRouter(tags=["Gmail Integration"])
@@ -79,14 +96,16 @@ async def google_auth_login(
     the callback with the correct MailShield account.
     REQUIRES: valid JWT session (user must be logged into MailShield first).
     """
-    secret = os.getenv("JWT_SECRET_KEY", "mailshield_jwt_secure_key_sih2026_dev_env")
-    # Encode user_id and originating dashboard url in state
+    # Signed, short-lived, purpose-bound state (CSRF protection for the OAuth flow)
+    now = datetime.now(timezone.utc)
     state_payload = {
         "user_id": current_user.id,
-        "sub": current_user.email,
-        "origin": origin or "/dashboard",
+        "purpose": "gmail_oauth",
+        "origin": _safe_return_path(origin),
+        "iat": now,
+        "exp": now + timedelta(minutes=10),
     }
-    state_token = _jwt.encode(state_payload, secret, algorithm="HS256")
+    state_token = _jwt.encode(state_payload, _settings.JWT_SECRET_KEY, algorithm="HS256")
 
     try:
         auth_url = build_authorization_url(state=state_token)
@@ -132,11 +151,11 @@ async def google_auth_callback(
     logger.info("Client secret loaded: %s", "YES" if client_secret_loaded else "NO")
     logger.info("Code present: %s | State present: %s | Error: %s", bool(code), bool(state), error or "None")
 
-    fallback_url = "/dashboard"
+    fallback_url = _frontend_url("/dashboard")
 
     if error:
         logger.error("Google OAuth returned error from Google consent: %s", error)
-        return RedirectResponse(url=f"{fallback_url}?oauth_error={error}")
+        return RedirectResponse(url=f"{fallback_url}?oauth_error={quote(error)[:64]}")
 
     if not code:
         logger.error("OAuth callback missing code parameter")
@@ -147,14 +166,15 @@ async def google_auth_callback(
         return RedirectResponse(url=f"{fallback_url}?oauth_error=missing_state")
 
     # Decode state to get user_id and originating url
-    secret = os.getenv("JWT_SECRET_KEY", "mailshield_jwt_secure_key_sih2026_dev_env")
     return_url = fallback_url
     try:
-        payload = _jwt.decode(state, secret, algorithms=["HS256"])
+        payload = _jwt.decode(state, _settings.JWT_SECRET_KEY, algorithms=["HS256"], options={"require": ["exp"]})
         user_id = payload.get("user_id")
-        return_url = payload.get("origin") or fallback_url
-        if not user_id:
-            raise ValueError("Missing user_id in state token")
+        if payload.get("purpose") != "gmail_oauth" or not user_id:
+            raise ValueError("Wrong-purpose or incomplete state token")
+        if not db.get(User, user_id):
+            raise ValueError("Unknown user in state token")
+        return_url = _frontend_url(_safe_return_path(payload.get("origin")))
     except Exception as e:
         logger.error("OAuth state token invalid: %s", e)
         return RedirectResponse(url=f"{fallback_url}?oauth_error=invalid_state")
@@ -418,7 +438,7 @@ async def quarantine_investigation_email(
             detail=f"Investigation '{investigation_id}' not found.",
         )
 
-    if inv.user_id and inv.user_id != current_user.id:
+    if inv.user_id != current_user.id:
         logger.warning(
             "Security violation: User %s attempted to quarantine investigation %s owned by %s",
             current_user.id, inv.id, inv.user_id,

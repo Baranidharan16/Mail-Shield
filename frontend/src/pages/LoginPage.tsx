@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getApiErrorMessage } from "../api/client";
 import { Shield, Lock, Mail, Eye, EyeOff, ArrowRight, AlertCircle, Loader2 } from "lucide-react";
 import MorphingSvgBackground from "../components/MorphingSvgBackground";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, isAuthenticated, isLoading, sessionExpired } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -14,8 +15,15 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   const from = (location.state as any)?.from?.pathname || "/";
+  const notice: string | null =
+    (location.state as any)?.notice || (sessionExpired ? "Your session has expired. Please sign in again." : null);
+
+  if (!isLoading && isAuthenticated) {
+    return <Navigate to={from} replace />;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,6 +33,10 @@ export default function LoginPage() {
       setError("Please enter your email address.");
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("Please enter a valid email address.");
+      return;
+    }
     if (!password) {
       setError("Please enter your password.");
       return;
@@ -32,11 +44,10 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      await login(email.trim(), password);
+      await login(email.trim(), password, rememberMe);
       navigate(from, { replace: true });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || "Invalid email or password. Please check your credentials.";
-      setError(detail);
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Sign-in failed. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -72,6 +83,13 @@ export default function LoginPage() {
               Enter your authorized credentials to access your investigations
             </p>
           </div>
+
+          {notice && !error && (
+            <div className="mb-5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">{notice}</div>
+            </div>
+          )}
 
           {error && (
             <div className="mb-5 p-3.5 rounded-xl bg-crimson-signal/15 border border-crimson-signal/40 text-crimson-glow text-xs flex items-start gap-2.5 animate-shake">
@@ -116,12 +134,28 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-lab-500 hover:text-lab-300 transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs">
+              <label className="flex items-center gap-2 text-lab-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="accent-emerald-500 w-3.5 h-3.5"
+                />
+                Keep me signed in
+              </label>
+              <Link to="/forgot-password" className="text-phosphor-400 hover:text-phosphor-300">
+                Forgot password?
+              </Link>
             </div>
 
             <button

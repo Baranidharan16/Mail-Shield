@@ -1,6 +1,16 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getApiErrorMessage } from "../api/client";
+
+/** Mirrors the backend policy in services/auth_service.py::password_problems */
+function passwordChecks(pw: string) {
+  return [
+    { ok: pw.length >= 8, label: "8+ characters" },
+    { ok: /[A-Za-z]/.test(pw), label: "a letter" },
+    { ok: /\d/.test(pw), label: "a number" },
+  ];
+}
 import { Shield, Lock, Mail, User, Eye, EyeOff, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import MorphingSvgBackground from "../components/MorphingSvgBackground";
 
@@ -20,16 +30,17 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
-    if (!name.trim()) {
-      setError("Please enter your full name.");
+    if (name.trim().length < 2) {
+      setError("Please enter your full name (at least 2 characters).");
       return;
     }
-    if (!email.trim()) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError("Please enter a valid email address.");
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters long.");
+    const failed = passwordChecks(password).filter((c) => !c.ok);
+    if (failed.length) {
+      setError("Password must contain " + failed.map((c) => c.label).join(", ") + ".");
       return;
     }
     if (password !== confirmPassword) {
@@ -41,9 +52,8 @@ export default function RegisterPage() {
     try {
       await register(name.trim(), email.trim(), password, confirmPassword);
       navigate("/", { replace: true });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail || "Registration failed. Please check your information.";
-      setError(detail);
+    } catch (err) {
+      setError(getApiErrorMessage(err, "Registration failed. Please check your information."));
     } finally {
       setSubmitting(false);
     }
@@ -128,7 +138,7 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-[11px] font-mono text-lab-300 uppercase tracking-wider mb-1.5 font-semibold">
-                Password (min 8 characters)
+                Password
               </label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-lab-500" />
@@ -143,12 +153,22 @@ export default function RegisterPage() {
                 />
                 <button
                   type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-lab-500 hover:text-lab-300 transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {password && (
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono">
+                  {passwordChecks(password).map((c) => (
+                    <span key={c.label} className={c.ok ? "text-phosphor-400" : "text-lab-500"}>
+                      {c.ok ? "✓" : "○"} {c.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>

@@ -24,10 +24,18 @@ TEST_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "test_data")
 def client():
     # Fresh schema for every test for isolation
     from app.models import investigation as _models  # noqa: F401
+    from app.models import user as _u, auth_session as _s, gmail_account as _g  # noqa: F401
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
     with TestClient(app) as c:
+        # All data routes now require an authenticated user.
+        r = c.post("/api/auth/register", json={
+            "name": "Integration Tester", "email": "it@example.com",
+            "password": "Integr4tion-Pass", "confirm_password": "Integr4tion-Pass",
+        })
+        assert r.status_code == 201, r.text
+        c.headers["Authorization"] = f"Bearer {r.json()['access_token']}"
         yield c
 
 

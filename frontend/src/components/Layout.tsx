@@ -11,6 +11,7 @@ import MailShieldChatbot from "./MailShieldChatbot";
 import AIEngineStatus from "./AIEngineStatus";
 import { useChat } from "../context/ChatContext";
 import { useAuth } from "../context/AuthContext";
+import { API_ROOT } from "../api/client";
 
 
 const NAV_ITEMS = [
@@ -77,8 +78,8 @@ export default function Layout() {
   // Periodically ping backend health
   useEffect(() => {
     const check = () =>
-      fetch("http://localhost:8000/api/v1/dashboard/stats", { signal: AbortSignal.timeout(3000) })
-        .then(() => setBackendAlive(true))
+      fetch(`${API_ROOT}/api/v1/health`, { signal: AbortSignal.timeout(3000) })
+        .then((r) => setBackendAlive(r.ok))
         .catch(() => setBackendAlive(false));
     check();
     const t = setInterval(check, 30000);

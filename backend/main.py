@@ -56,9 +56,15 @@ logger = logging.getLogger("mailshield.backend")
 async def lifespan(app: FastAPI):
     """Lifespan context manager to load models once at application startup."""
     logger.info("Initializing MailShield Backend Services...")
+    from app.core.config import get_settings as _gs
+    _load_models = _gs().LOAD_ML_MODELS
+    if not _load_models:
+        logger.warning("LOAD_ML_MODELS=false — skipping TensorFlow model loading (rule-based analysis only).")
 
     # Load ML Model (mailshield_ml.keras)
     try:
+        if not _load_models:
+            raise RuntimeError("model loading disabled")
         ml_service = get_ml_service()
         ml_service.load()
         logger.info("MailShield ML Phishing Detection Model loaded into RAM.")
@@ -71,6 +77,8 @@ async def lifespan(app: FastAPI):
 
     # Load NLP Model (mailshield_nlp.keras)
     try:
+        if not _load_models:
+            raise RuntimeError("model loading disabled")
         nlp_service = get_nlp_service()
         nlp_service.load()
         logger.info("MailShield NLP Threat-Pattern Model loaded into RAM.")
@@ -100,58 +108,69 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Enable CORS for local development and frontend
-CORS_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
+# ── CORS ─────────────────────────────────────────────────────────────────────
+# Only explicitly configured origins may make credentialed requests. Configure
+# with CORS_ORIGINS (JSON list or comma-separated) and/or FRONTEND_URL.
+# NOTE: a wildcard like https://*.vercel.app is deliberately NOT allowed —
+# anyone can deploy a site there and it would be able to use visitors' sessions.
+from app.core.config import get_settings  # noqa: E402
 
-env_cors = os.getenv("CORS_ORIGINS")
-if env_cors:
-    for origin in env_cors.split(","):
-        o = origin.strip()
-        if o and o not in CORS_ORIGINS:
-            CORS_ORIGINS.append(o)
-
-frontend_url = os.getenv("FRONTEND_URL")
-if frontend_url and frontend_url not in CORS_ORIGINS:
-    CORS_ORIGINS.append(frontend_url)
+settings = get_settings()
+CORS_ORIGINS = list(settings.CORS_ORIGINS)
+logger.info("CORS allowed origins: %s", CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-API-Key"],
+    expose_headers=["X-Auth-Error", "Retry-After"],
 )
 
-# ── Mount Core API Routers ───────────────────────────────────────────────────
-app.include_router(health_router)
-app.include_router(analysis_router)
-app.include_router(assistant_router)
-app.include_router(auth_router)
-app.include_router(gmail_router)
 
-# ── Mount Legacy Routers to Preserve Platform Depth (SOC, Dossier, Timeline) ─
-try:
-    from app.api.v1 import investigations, health, alerts, blockchain, dashboard, timeline, cases, chat, sse, system
-    app.include_router(investigations.router, prefix="/api/v1")
-    app.include_router(alerts.router, prefix="/api/v1")
-    app.include_router(blockchain.router, prefix="/api/v1")
-    app.include_router(blockchain.router, prefix="/api")
-    app.include_router(dashboard.router, prefix="/api/v1")
-    app.include_router(timeline.router, prefix="/api/v1")
-    app.include_router(cases.router, prefix="/api/v1")
-    app.include_router(chat.router, prefix="/api/v1")
-    app.include_router(sse.router, prefix="/api/v1")
-    app.include_router(system.router, prefix="/api/v1")
-    logger.info("Mounted all MailShield API routers (auth + forensic + legacy).")
-except Exception as e:
-    logger.warning("Could not mount legacy routers: %s", e)
+# ── Clear errors when the database is unreachable ───────────────────────────
+from fastapi import Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from sqlalchemy.exc import OperationalError, InterfaceError  # noqa: E402
+
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(InterfaceError)
+async def _db_unavailable_handler(request: Request, exc: Exception):
+    logger.error("Database unavailable: %s", type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The database is temporarily unavailable. Please try again shortly."},
+    )
+
+
+# ── Mount Routers ────────────────────────────────────────────────────────────
+from fastapi import Depends  # noqa: E402
+from utils.auth_deps import get_current_user, require_resource_owner  # noqa: E402
+
+AUTH = [Depends(get_current_user)]            # must be signed in
+OWNER = [Depends(require_resource_owner)]     # signed in AND owns {investigation_id}/{alert_id}
+
+app.include_router(health_router)                          # public: liveness only
+app.include_router(auth_router)                            # public: register/login/refresh
+app.include_router(analysis_router, dependencies=AUTH)     # scans are saved under the caller
+app.include_router(assistant_router, dependencies=AUTH)    # paid AI APIs — no anonymous use
+app.include_router(gmail_router)                           # per-route auth (OAuth callback is public)
+
+from app.api.v1 import investigations, alerts, blockchain, dashboard, timeline, cases, chat, sse, system  # noqa: E402
+
+app.include_router(investigations.router, prefix="/api/v1", dependencies=OWNER)
+app.include_router(alerts.router, prefix="/api/v1", dependencies=OWNER)
+app.include_router(cases.router, prefix="/api/v1", dependencies=OWNER)
+app.include_router(timeline.router, prefix="/api/v1", dependencies=OWNER)
+app.include_router(sse.router, prefix="/api/v1", dependencies=OWNER)
+app.include_router(dashboard.router, prefix="/api/v1", dependencies=AUTH)
+app.include_router(blockchain.router, prefix="/api/v1", dependencies=AUTH)
+app.include_router(blockchain.router, prefix="/api", dependencies=AUTH)
+app.include_router(chat.router, prefix="/api/v1", dependencies=AUTH)
+app.include_router(system.router, prefix="/api/v1", dependencies=AUTH)
+logger.info("Mounted all MailShield API routers (auth + forensic + legacy).")
 
 
 # ── Frontend Static Distribution Serving ─────────────────────────────────────
@@ -164,7 +183,7 @@ if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        if full_path.startswith("api") or full_path.startswith("auth"):
+        if full_path.startswith("api/") or full_path.startswith("auth/") or full_path in ("api", "auth"):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail=f"API route not found: /{full_path}")
         target = FRONTEND_DIST / full_path

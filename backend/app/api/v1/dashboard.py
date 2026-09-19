@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
-from app.models.investigation import Alert, Campaign, Investigation
+from app.models.investigation import Alert, Campaign, CampaignMember, Investigation
 from app.models.user import User
 from utils.auth_deps import get_optional_current_user
 
@@ -26,7 +26,7 @@ def get_dashboard_stats(
     if current_user:
         base_q = base_q.filter(Investigation.user_id == current_user.id)
     else:
-        base_q = base_q.filter(Investigation.user_id.is_(None))
+        base_q = base_q.filter(Investigation.id.is_(None))  # unauthenticated: nothing
 
     total = base_q.count()
     critical = base_q.filter(Investigation.classification == "CRITICAL").count()
@@ -38,11 +38,18 @@ def get_dashboard_stats(
     ).count()
     completed = base_q.filter(Investigation.status == "COMPLETED").count()
     failed = base_q.filter(Investigation.status == "FAILED").count()
-    campaigns = db.query(Campaign).count()
+    campaigns = (
+        db.query(Campaign.id).join(CampaignMember, CampaignMember.campaign_id == Campaign.id)
+        .join(Investigation, Investigation.id == CampaignMember.investigation_id)
+        .filter(Investigation.user_id == (current_user.id if current_user else None))
+        .distinct().count()
+    )
 
-    alerts_q = db.query(Alert).filter(Alert.acknowledged == False)  # noqa: E712
-    if current_user:
-        alerts_q = alerts_q.join(Investigation).filter(Investigation.user_id == current_user.id)
+    alerts_q = (
+        db.query(Alert).filter(Alert.acknowledged == False)  # noqa: E712
+        .join(Investigation, Investigation.id == Alert.investigation_id)
+        .filter(Investigation.user_id == (current_user.id if current_user else None))
+    )
     active_alerts = alerts_q.count()
 
     return {
@@ -75,7 +82,7 @@ def get_threat_trend(
     if current_user:
         q = q.filter(Investigation.user_id == current_user.id)
     else:
-        q = q.filter(Investigation.user_id.is_(None))
+        q = q.filter(Investigation.id.is_(None))  # unauthenticated: nothing
 
     rows = q.order_by(Investigation.created_at.asc()).all()
     # Bucket by date
@@ -100,7 +107,7 @@ def get_recent_alerts(
     if current_user:
         alerts_q = alerts_q.filter(Investigation.user_id == current_user.id)
     else:
-        alerts_q = alerts_q.filter(Investigation.user_id.is_(None))
+        alerts_q = alerts_q.filter(Investigation.id.is_(None))  # unauthenticated: nothing
 
     alerts = (
         alerts_q
