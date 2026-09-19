@@ -1,18 +1,15 @@
-# Render Blueprint — backend API + managed PostgreSQL.
-# Render dashboard → New → Blueprint → select this repo. Pushes to main auto-deploy.
+# Render Blueprint: ONE public web service (frontend + API) + managed PostgreSQL.
+# Render → New → Blueprint → this repo.  Public URL: https://mailshield-sih.onrender.com
 services:
   - type: web
-    name: sih-email-forensics-backend
-    runtime: python
-    rootDir: backend
+    name: mailshield-sih
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
     autoDeploy: true
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
     healthCheckPath: /api/v1/health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.7
       - key: APP_ENV
         value: production
       - key: DATABASE_URL
@@ -22,27 +19,23 @@ services:
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: FRONTEND_URL
-        sync: false          # e.g. https://sih-email-forensics-full.vercel.app
+        value: https://mailshield-sih.onrender.com
       - key: CORS_ORIGINS
-        sync: false          # same as FRONTEND_URL
-      - key: COOKIE_SAMESITE
-        value: lax
+        value: https://mailshield-sih.onrender.com,https://sih-email-forensics-full.vercel.app
       - key: LOAD_ML_MODELS
-        value: "false"       # TensorFlow needs >512 MB RAM; set true on a paid instance
+        value: "false"
+      - key: UPLOAD_STORAGE_DIR
+        value: /tmp/evidence
+      - key: GOOGLE_REDIRECT_URI
+        value: https://mailshield-sih.onrender.com/auth/google/callback
       - key: FERNET_KEY
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-      - key: GOOGLE_REDIRECT_URI
-        sync: false          # https://sih-email-forensics-full-1.onrender.com/auth/google/callback
       - key: GEMINI_API_KEY
         sync: false
-      - key: SARVAM_API_KEY
-        sync: false
-      - key: UPLOAD_STORAGE_DIR
-        value: /tmp/evidence
 
 databases:
   - name: mailshield-db

@@ -1,0 +1,14 @@
+**/node_modules
+**/.venv
+**/venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.env
+**/.env.local
+backend/forensics.db*
+backend/storage
+frontend/dist
+scratch
+sih-email-forensics
+.git
