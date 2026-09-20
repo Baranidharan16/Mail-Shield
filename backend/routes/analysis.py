@@ -39,18 +39,35 @@ router = APIRouter(tags=["Analysis"])
 
 def _nlp_from_indicators(indicators) -> NLPAnalysisResult:
     """Category scores = strongest matched social-engineering pattern per category
-    (rule/pattern based, each backed by a matched phrase stored as evidence)."""
+    (rule/pattern based, each backed by a matched phrase stored as evidence).
+    Covers all indicator_type values emitted by social_engineering.py."""
     best = {}
     for i in indicators or []:
         best[i.indicator_type] = max(best.get(i.indicator_type, 0.0), float(i.confidence or 0.0))
     g = lambda *k: round(max([best.get(x, 0.0) for x in k] + [0.0]), 4)  # noqa: E731
     return NLPAnalysisResult(
+        # urgency indicator_type emitted directly as "urgency"
         urgency=g("urgency"),
-        credential_request=g("credential_request", "account_verification", "password_reset_pressure"),
-        financial_manipulation=g("payment_request", "invoice_payment_diversion"),
-        impersonation=g("executive_impersonation"),
-        threat_language=g("fear_threat"),
-        suspicious_action=g("suspicious_call_to_action"),
+        # credential_harvesting + aliases
+        credential_request=g(
+            "credential_request", "credential_harvesting",
+            "account_verification", "password_reset_pressure",
+            "phishing_social_engineering",
+        ),
+        # payment_fraud / invoice fraud maps to financial_manipulation
+        financial_manipulation=g(
+            "financial_manipulation", "payment_fraud",
+            "payment_request", "invoice_payment_diversion",
+        ),
+        # executive_impersonation is the forensic indicator type
+        impersonation=g("impersonation", "executive_impersonation"),
+        # explicit threats, blackmail, extortion, harassment map to threat_language
+        threat_language=g(
+            "threat_language", "fear_threat",
+            "explicit_threat", "blackmail_extortion", "harassment_intimidation",
+        ),
+        # suspicious call-to-action indicator
+        suspicious_action=g("suspicious_action", "suspicious_call_to_action", "spam_bulk"),
     )
 
 
@@ -95,9 +112,29 @@ async def _process_analysis(
     label = "phishing" if (mlp and "PHISHING" in (mlp.structured_label, mlp.text_label)) else "legitimate"
     ml_result = MLAnalysisResult(prediction=label, phishing_probability=round(p, 4),
                                  confidence=round(max(p, 1 - p), 4))
+    # Rule-based indicator fallback (weakest priority)
     nlp_result = _nlp_from_indicators(inv.indicators)
 
-    # MailShield Keras models (trained on 157k emails / 6 threat categories).
+    # ── Second-priority: use Keras NLP outputs already stored in the investigation
+    # by _keras_panel_outputs() during analysis (so we always surface the trained
+    # model scores even if the NLP service is not in-memory at response time).
+    stored_keras = (mlp.fused_breakdown or {}).get("mailshield_keras_models", {}) if mlp else {}
+    stored_nlp = stored_keras.get("nlp")
+    if stored_nlp and isinstance(stored_nlp, dict):
+        try:
+            nlp_result = NLPAnalysisResult(
+                urgency=float(stored_nlp.get("urgency", nlp_result.urgency)),
+                credential_request=float(stored_nlp.get("credential_request", nlp_result.credential_request)),
+                financial_manipulation=float(stored_nlp.get("financial_manipulation", nlp_result.financial_manipulation)),
+                impersonation=float(stored_nlp.get("impersonation", nlp_result.impersonation)),
+                threat_language=float(stored_nlp.get("threat_language", nlp_result.threat_language)),
+                suspicious_action=float(stored_nlp.get("suspicious_action", nlp_result.suspicious_action)),
+            )
+            logger.debug("NLP panel: loaded from stored keras outputs (investigation %s)", inv.id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not deserialize stored NLP keras outputs: %s", exc)
+
+    # ── First-priority: live inference from the in-memory NLP model (most accurate)
     model_text = getattr(parsed, "model_text", None) or ""
     ml_svc, nlp_svc = get_ml_service(), get_nlp_service()
     if ml_svc.is_loaded():
@@ -109,7 +146,7 @@ async def _process_analysis(
         try:
             nlp_result = nlp_svc.predict(model_text)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Keras NLP panel fell back to rule indicators: %s", exc)
+            logger.warning("Keras NLP panel fell back to stored/rule indicators: %s", exc)
     forensics_result = analyze_forensics(parsed)
     risk_result = RiskResult(
         score=int(round(inv.risk_score or 0)),
