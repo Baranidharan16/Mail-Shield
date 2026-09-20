@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutGrid, UploadCloud, History, Archive, Link2,
   Settings, ChevronRight, Sparkles, AlertTriangle,
   Brain, Search, Bell, Menu, X, Network, Activity, Lock,
-  UserCheck, LogOut,
+  UserCheck, LogOut, ArrowUp,
 } from "lucide-react";
 import MorphingSvgBackground from "./MorphingSvgBackground";
 import MailShieldChatbot from "./MailShieldChatbot";
@@ -86,8 +86,17 @@ export default function Layout() {
     return () => clearInterval(t);
   }, []);
 
+  // Only the centre column scrolls; header and sidebar stay fixed in place.
+  const mainRef = useRef<HTMLElement>(null);
+  const [showTop, setShowTop] = useState(false);
+  const location = useLocation();
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });   // new page -> start at the top
+  }, [location.pathname]);
+  const onMainScroll = () => setShowTop((mainRef.current?.scrollTop ?? 0) > 600);
+
   return (
-    <div className="min-h-screen flex flex-col bg-lab-950 text-lab-100 relative overflow-hidden">
+    <div className="h-screen h-dvh flex flex-col bg-lab-950 text-lab-100 relative overflow-hidden">
       <MorphingSvgBackground />
 
       {/* ─── TOP NAVIGATION BAR ───────────────────────────────────────── */}
@@ -205,7 +214,7 @@ export default function Layout() {
 
         {/* ─── GLASSMORPHIC SIDEBAR ──────────────────────────────────── */}
         <aside className={
-          "w-64 shrink-0 border-r border-white/[0.06] glass-panel-heavy z-40 flex flex-col " +
+          "w-64 shrink-0 border-r border-white/[0.06] glass-panel-heavy z-40 flex flex-col overflow-y-auto overscroll-contain " +
           "fixed lg:relative inset-y-0 left-0 transition-transform duration-300 ease-in-out " +
           (sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0")
         }>
@@ -236,7 +245,7 @@ export default function Layout() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-2.5 py-4 space-y-4 overflow-y-auto">
+          <nav className="flex-none px-2.5 py-4 space-y-4">
             {NAV_ITEMS.map((group) => (
               <div key={group.group}>
                 <div className="px-2.5 mb-1.5 text-[9px] text-lab-600 evidence-tag font-bold tracking-widest">
@@ -295,11 +304,30 @@ export default function Layout() {
         </aside>
 
         {/* ─── MAIN CONTENT ─────────────────────────────────────────── */}
-        <main className="flex-1 min-w-0 scanline overflow-y-auto relative">
+        <main
+          ref={mainRef}
+          onScroll={onMainScroll}
+          className="flex-1 min-w-0 scanline overflow-y-auto overscroll-contain relative"
+        >
           <div className="min-h-full">
             <Outlet />
           </div>
         </main>
+
+        {/* Back-to-top: long forensic reports -> one click to return */}
+        {showTop && (
+          <button
+            type="button"
+            onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+            title="Back to top"
+            aria-label="Back to top"
+            className="fixed bottom-24 lg:bottom-6 left-4 lg:left-[17.5rem] z-40 flex items-center gap-1.5 px-3.5 py-2 rounded-lg
+              bg-paper border border-stone-line text-ink text-xs font-semibold shadow-md hover:bg-cream transition-colors cursor-pointer"
+          >
+            <ArrowUp className="h-3.5 w-3.5" />
+            Back to top
+          </button>
+        )}
       </div>
 
       {/* Global AI Chatbot */}
