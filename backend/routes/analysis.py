@@ -27,7 +27,7 @@ from services.email_parser import ParsedEmailData, parse_eml_bytes
 from services.forensic_service import analyze_forensics
 from services.gemini_service import get_reasoning_provider
 from services.ml_service import get_ml_service
-from services.nlp_service import get_nlp_service
+from services.nlp_service import get_nlp_service, keyword_nlp_score
 from services.risk_engine import calculate_risk_score
 from utils.auth_deps import get_optional_current_user
 from utils.text_processing import clean_text_for_model, extract_domain, extract_urls
@@ -142,6 +142,15 @@ async def _process_analysis(
             ml_result = ml_svc.predict(model_text)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Keras ML panel fell back to structured model: %s", exc)
+    # Keyword scorer — guaranteed tier-2 fallback, zero dependencies, always runs
+    # when the stored keras outputs are also unavailable (model never loaded on Render).
+    if all(v == 0.0 for v in [
+        nlp_result.urgency, nlp_result.credential_request, nlp_result.financial_manipulation,
+        nlp_result.impersonation, nlp_result.threat_language, nlp_result.suspicious_action,
+    ]):
+        nlp_result = keyword_nlp_score(model_text)
+        logger.debug("NLP panel: using keyword scorer fallback (model_text len=%d)", len(model_text))
+    # Live NLP model overrides everything if available
     if nlp_svc.is_loaded():
         try:
             nlp_result = nlp_svc.predict(model_text)

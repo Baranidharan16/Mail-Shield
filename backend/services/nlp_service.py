@@ -41,6 +41,134 @@ THREAT_LABELS = [
     "suspicious_action",
 ]
 
+# ---------------------------------------------------------------------------
+# KeywordNLPScorer — pure-Python fallback when the numpy model is not loaded.
+# Works on Render's 512 MB free tier with zero extra dependencies.
+# Uses weighted phrase matching to approximate the trained model's 6 outputs.
+# ---------------------------------------------------------------------------
+class KeywordNLPScorer:
+    """Zero-dependency keyword scorer for the 6 MailShield NLP threat categories.
+
+    Each entry is (phrase, weight). Score is clamped to [0, 1] so multiple
+    hits don't overflow.
+    """
+
+    _PATTERNS: "dict[str, list[tuple[str, float]]]" = {
+        "urgency": [
+            ("urgent", 0.30), ("urgently", 0.30), ("immediately", 0.30),
+            ("act now", 0.35), ("act immediately", 0.35),
+            ("within 24 hours", 0.35), ("within 48 hours", 0.30),
+            ("time sensitive", 0.25), ("time-sensitive", 0.25),
+            ("asap", 0.25), ("as soon as possible", 0.20),
+            ("final notice", 0.30), ("last chance", 0.25),
+            ("immediate action", 0.30), ("immediate action required", 0.35),
+            ("respond immediately", 0.35), ("deadline", 0.15),
+            ("do not delay", 0.25), ("action required", 0.25),
+            ("response required", 0.20), ("expires today", 0.30),
+            ("will be closed", 0.25), ("must verify", 0.25),
+        ],
+        "credential_request": [
+            ("verify your password", 0.40), ("confirm your password", 0.40),
+            ("enter your password", 0.40), ("re-enter your password", 0.40),
+            ("update your password", 0.35), ("reset your password", 0.30),
+            ("verify your account", 0.35), ("confirm your account", 0.35),
+            ("verify your identity", 0.35), ("verify your credentials", 0.40),
+            ("confirm your credentials", 0.40), ("login to verify", 0.35),
+            ("click here to verify", 0.35), ("click here to login", 0.35),
+            ("validate your account", 0.35), ("validate your mailbox", 0.35),
+            ("send your password", 0.40), ("provide your password", 0.40),
+            ("enter your otp", 0.35), ("enter your pin", 0.35),
+            ("reply with your password", 0.40),
+            ("account verification required", 0.35),
+            ("keep your current password", 0.35),
+            ("two-factor", 0.15), ("2fa code", 0.25),
+        ],
+        "financial_manipulation": [
+            ("wire transfer", 0.40), ("wire the funds", 0.40),
+            ("wire the money", 0.40), ("process a payment", 0.35),
+            ("send bitcoin", 0.40), ("send btc", 0.40),
+            ("bitcoin wallet", 0.40), ("crypto address", 0.40),
+            ("wallet address", 0.40), ("transfer funds", 0.35),
+            ("updated bank details", 0.35), ("new bank account", 0.35),
+            ("beneficiary details", 0.35), ("change the beneficiary", 0.35),
+            ("overdue invoice", 0.30), ("tax refund", 0.25),
+            ("customs fee", 0.25), ("delivery fee", 0.20),
+            ("apple gift card", 0.40), ("amazon gift card", 0.40),
+            ("google play card", 0.40), ("gift card", 0.35),
+            ("send money", 0.25), ("urgent payment", 0.30),
+        ],
+        "impersonation": [
+            ("are you available", 0.35), ("are you at your desk", 0.35),
+            ("i need you to handle", 0.35), ("keep this confidential", 0.35),
+            ("keep this between us", 0.35), ("strictly confidential", 0.30),
+            ("can you do me a favour", 0.35), ("can you do me a favor", 0.35),
+            ("i'm in a meeting", 0.30), ("i am in a meeting", 0.30),
+            ("cannot take calls", 0.30), ("can't take calls", 0.30),
+            ("microsoft security", 0.25), ("google security", 0.25),
+            ("apple support", 0.25), ("paypal support", 0.25),
+            ("bank security", 0.25), ("support team", 0.10),
+            ("security team", 0.10), ("it department", 0.10),
+            ("on behalf of", 0.15), ("from the desk of", 0.20),
+        ],
+        "threat_language": [
+            ("your account will be suspended", 0.35),
+            ("account has been suspended", 0.35),
+            ("account will be terminated", 0.35),
+            ("account will be closed", 0.35),
+            ("account will be blocked", 0.35),
+            ("account has been compromised", 0.35),
+            ("account has been hacked", 0.35),
+            ("unauthorized access", 0.30), ("unauthorized login", 0.30),
+            ("security breach", 0.30), ("data breach", 0.25),
+            ("will face legal action", 0.40), ("legal consequences", 0.35),
+            ("report to authorities", 0.35), ("expose your", 0.35),
+            ("release the video", 0.40), ("release the photos", 0.40),
+            ("blackmail", 0.40), ("extortion", 0.40), ("ransom", 0.40),
+            ("hacked your device", 0.40), ("hacked your computer", 0.40),
+            ("recorded you", 0.35), ("failure to comply", 0.35),
+            ("consequences", 0.15), ("failure to", 0.20),
+        ],
+        "suspicious_action": [
+            ("click the link", 0.35), ("click here", 0.25),
+            ("click below", 0.30), ("download the attachment", 0.35),
+            ("open the attachment", 0.35), ("open the file", 0.30),
+            ("enable macros", 0.40), ("enable editing", 0.35),
+            ("enable content", 0.35), ("view document online", 0.30),
+            ("login here", 0.30), ("sign in here", 0.30),
+            ("complete the form", 0.25), ("claim your", 0.25),
+            ("claim now", 0.25), ("congratulations you", 0.30),
+            ("you have been selected", 0.30), ("you have won", 0.30),
+            ("free prize", 0.25), ("bit.ly", 0.20), ("tinyurl", 0.20),
+            ("confirm here", 0.25), ("verify here", 0.25),
+        ],
+    }
+
+    def score(self, text: str) -> NLPAnalysisResult:
+        """Score text against 6 threat categories using weighted keyword matching."""
+        t = (text or "").lower()
+        results: "dict[str, float]" = {}
+        for category, phrases in self._PATTERNS.items():
+            raw = sum(w for phrase, w in phrases if phrase in t)
+            # sigmoid-like clamp so multiple hits don't overflow past 1.0
+            results[category] = round(min(1.0, raw / (raw + 0.4)) if raw > 0 else 0.0, 4)
+        return NLPAnalysisResult(
+            urgency=results["urgency"],
+            credential_request=results["credential_request"],
+            financial_manipulation=results["financial_manipulation"],
+            impersonation=results["impersonation"],
+            threat_language=results["threat_language"],
+            suspicious_action=results["suspicious_action"],
+        )
+
+
+# Module-level singleton — instantiated once, always available
+_keyword_scorer = KeywordNLPScorer()
+
+
+def keyword_nlp_score(text: str) -> NLPAnalysisResult:
+    """Convenience wrapper: keyword-based NLP scoring with zero dependencies."""
+    return _keyword_scorer.score(text)
+
 
 class NLPService:
     def __init__(self, model_path: Optional[str] = None, metadata_path: Optional[str] = None):
