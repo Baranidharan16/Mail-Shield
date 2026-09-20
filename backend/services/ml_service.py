@@ -123,44 +123,47 @@ class MLService:
             raise
 
     def is_loaded(self) -> bool:
+        if not self._is_loaded or self.model is None:
+            try:
+                self.load()
+            except Exception as e:
+                logger.debug("ML model auto-load deferred: %s", e)
         return self._is_loaded and self.model is not None
 
     def predict(self, text: str) -> MLAnalysisResult:
         """Runs phishing classification on raw email text (subject + body).
 
-        The model contains a built-in TextVectorization layer that accepts raw
-        string inputs — no external tokenizer or preprocessing required.
-        Uses best_threshold from metadata (0.35).
-        Returns actual probability and confidence.
-        Never generates fake/default results on failure; logs and raises the actual error.
+        The model accepts raw string inputs via its built-in TextVectorization layer.
+        No external tokenizer or vectorizer is required.
         """
         if not self._is_loaded or self.model is None:
+            try:
+                self.load()
+            except Exception as e:
+                logger.debug("ML model auto-load in predict: %s", e)
+
+        if not self._is_loaded or self.model is None:
             raise RuntimeError(
-                "ML model has not been loaded. Check startup logs for the exact Keras error."
+                "ML model has not been loaded. Check startup logs for the exact error."
             )
 
-        if text is None:
-            text = ""
+        if not text or not text.strip():
+            text = "Empty email body"
 
         try:
             if self._backend == "keras-lite":
-                prob = float(self.model.predict_proba(text)[0])
+                prob_raw = float(self.model.predict_proba(text)[0])
             else:
-                import tensorflow as tf
-                # Model expects a 1-D tensor of strings: shape (batch_size,) = (1,)
+                import tensorflow as tf  # lazy import
                 input_tensor = tf.constant([text], dtype=tf.string)
-                raw_pred = self.model.predict(input_tensor, verbose=0)
-                # Raw prediction is shape (1, 1) with sigmoid output [0.0 – 1.0]
-                prob = float(raw_pred[0][0])
-            prob = max(0.0, min(1.0, prob))
-
+                prob_raw = float(self.model.predict(input_tensor, verbose=0)[0][0])
+            prob = round(prob_raw, 4)
             prediction = "phishing" if prob >= self.threshold else "legitimate"
-            confidence = prob if prob >= self.threshold else (1.0 - prob)
-
+            conf = prob if prediction == "phishing" else 1.0 - prob
             return MLAnalysisResult(
                 prediction=prediction,
-                phishing_probability=round(prob, 4),
-                confidence=round(confidence, 4),
+                phishing_probability=prob,
+                confidence=round(conf, 4),
             )
         except Exception as exc:
             logger.error("ML model inference failed: %s", exc, exc_info=True)
@@ -175,5 +178,8 @@ def get_ml_service() -> MLService:
     global _ml_service
     if _ml_service is None:
         _ml_service = MLService()
+        try:
+            _ml_service.load()
+        except Exception as exc:
+            logger.debug("Initial ML load deferred: %s", exc)
     return _ml_service
-

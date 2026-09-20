@@ -211,9 +211,32 @@ class GeoIPProvider:
         try:
             import ipaddress as _ip
             ip_obj = _ip.ip_address(ip_address)
-            for cidr in _DEMO_IP_RANGES:
+            for cidr, demo_data in _DEMO_IP_RANGES.items():
                 if ip_obj in _ip.ip_network(cidr):
-                    return {"available": False, "reason": "RFC 5737 documentation/test address — not routable on the internet; no geolocation exists."}
+                    coords = {
+                        "192.0.2.0/24": (38.9072, -77.0369, "Washington, D.C.", "United States", "US"),
+                        "198.51.100.0/24": (51.5074, -0.1278, "London", "United Kingdom", "GB"),
+                        "203.0.113.0/24": (35.6762, 139.6503, "Tokyo", "Japan", "JP"),
+                    }.get(cidr, (38.9072, -77.0369, "Washington, D.C.", "United States", "US"))
+                    return {
+                        "available": True,
+                        "is_synthetic_demo_data": True,
+                        "source": "Synthetic Demo Data (RFC 5737)",
+                        "country": coords[3], "country_code": coords[4],
+                        "region": coords[2], "city": coords[2],
+                        "lat": coords[0], "lon": coords[1],
+                        "isp": demo_data.get("org", "Demo ISP"),
+                        "org": demo_data.get("org", "Demo Org"),
+                        "asn": demo_data.get("asn", "AS64511"),
+                        "as_name": demo_data.get("asn", "AS64511"),
+                        "hosting": True, "proxy": False, "mobile": False,
+                        "network_provider": "Demo Infrastructure",
+                        "network_category": "CLOUD_DATACENTER",
+                        "location_caveat": "Demo email RFC 5737 test range - synthetic geolocation for demonstration.",
+                        "accuracy_note": "Synthetic demonstration coordinates.",
+                        "disclaimer": "Synthetic demonstration IP - not a routable host on the public internet.",
+                        "label": "Demo Infrastructure Geolocation",
+                    }
             if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local:
                 return {"available": False, "reason": "Private/internal address — belongs to a mail provider's internal network; no public geolocation."}
         except ValueError:

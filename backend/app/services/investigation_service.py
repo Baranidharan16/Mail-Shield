@@ -103,15 +103,22 @@ def _keras_panel_outputs(raw_bytes: bytes):
     try:
         from services.email_parser import parse_eml_bytes
         from services.ml_service import get_ml_service
-        from services.nlp_service import get_nlp_service
+        from services.nlp_service import get_nlp_service, keyword_nlp_score
         text = parse_eml_bytes(raw_bytes).model_text or ""
         ml, nlp = get_ml_service(), get_nlp_service()
-        if ml.is_loaded():
+        try:
             out["ml"] = ml.predict(text).model_dump()
             out["ml"]["model"] = "MailShield Phishing Detector v2 (Keras BiLSTM)"
-        if nlp.is_loaded():
+        except Exception as ml_err:
+            logger.warning("ML panel prediction note: %s", ml_err)
+
+        try:
             out["nlp"] = nlp.predict(text).model_dump()
             out["nlp"]["model"] = "MailShield NLP v2 (Keras BiLSTM, 6 threat patterns)"
+        except Exception as nlp_err:
+            logger.warning("NLP panel prediction fallback: %s", nlp_err)
+            out["nlp"] = keyword_nlp_score(text).model_dump()
+            out["nlp"]["model"] = "MailShield NLP (Keyword Fallback)"
     except Exception as exc:  # noqa: BLE001
         logger.warning("Keras panel outputs unavailable: %s", exc)
     return out

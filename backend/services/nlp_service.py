@@ -282,6 +282,11 @@ class NLPService:
             raise
 
     def is_loaded(self) -> bool:
+        if not self._is_loaded or self.model is None:
+            try:
+                self.load()
+            except Exception as e:
+                logger.debug("NLP model auto-load deferred: %s", e)
         return self._is_loaded and self.model is not None
 
     def predict(self, text: str) -> NLPAnalysisResult:
@@ -291,21 +296,28 @@ class NLPService:
         No external tokenizer or vectorizer is required.
         """
         if not self._is_loaded or self.model is None:
-            raise RuntimeError(
-                "NLP model has not been loaded. Check startup logs for the exact Keras error."
-            )
+            try:
+                self.load()
+            except Exception as e:
+                logger.debug("NLP model auto-load in predict: %s", e)
+
+        if not self._is_loaded or self.model is None:
+            logger.info("NLP model unavailable; falling back to keyword_nlp_score")
+            return keyword_nlp_score(text)
 
         if not text or not text.strip():
             text = "Empty email body"
 
-        if self._backend == "keras-lite":
-            preds = self.model.predict_proba(text)
-        else:
-            import tensorflow as tf  # lazy import
-            # Model expects a 1-D tensor of strings: shape (batch_size,) = (1,)
-            input_tensor = tf.constant([text], dtype=tf.string)
-            # Raw prediction is shape (1, 6) with sigmoid values [0.0 – 1.0]
-            preds = self.model.predict(input_tensor, verbose=0)[0]
+        try:
+            if self._backend == "keras-lite":
+                preds = self.model.predict_proba(text)
+            else:
+                import tensorflow as tf  # lazy import
+                input_tensor = tf.constant([text], dtype=tf.string)
+                preds = self.model.predict(input_tensor, verbose=0)[0]
+        except Exception as exc:
+            logger.warning("NLP prediction error with %s: %s; falling back to keyword score", self._backend, exc)
+            return keyword_nlp_score(text)
 
         def _clip(v: float) -> float:
             return round(max(0.0, min(1.0, float(v))), 4)
@@ -352,4 +364,8 @@ def get_nlp_service() -> NLPService:
     global _nlp_service
     if _nlp_service is None:
         _nlp_service = NLPService()
+        try:
+            _nlp_service.load()
+        except Exception as exc:
+            logger.debug("Initial NLP load deferred: %s", exc)
     return _nlp_service

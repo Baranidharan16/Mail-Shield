@@ -516,7 +516,7 @@ export default function InvestigationDetailPage() {
         {/* Interactive Geolocation & Relay Path */}
         {originTrace && (
           <div id="geomap-section" className="scroll-mt-6">
-            <InteractiveGeoMap traceResult={originTrace} />
+            <InteractiveGeoMap traceResult={originTrace} loading={graphLoading} />
           </div>
         )}
 

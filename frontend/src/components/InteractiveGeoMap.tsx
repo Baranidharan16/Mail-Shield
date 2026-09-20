@@ -22,6 +22,7 @@ import type { OriginTraceResult, ObservableNode, SenderInfraItem } from "../api/
 
 interface InteractiveGeoMapProps {
   traceResult: OriginTraceResult | null;
+  loading?: boolean;
   className?: string;
 }
 
@@ -91,7 +92,7 @@ function infraIcon() {
   });
 }
 
-export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResult, className = "" }) => {
+export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResult, loading, className = "" }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
@@ -273,11 +274,21 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResul
     }
   };
 
-  if (!traceResult) {
+  if (loading || (!traceResult && loading !== false)) {
     return (
       <div className={`rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center ${className}`}>
         <Globe className="mx-auto h-8 w-8 text-slate-500 animate-spin" />
         <p className="mt-2 text-sm text-slate-400">Loading infrastructure relay topology...</p>
+      </div>
+    );
+  }
+
+  if (!traceResult) {
+    return (
+      <div className={`rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-center ${className}`}>
+        <MapPin className="mx-auto h-8 w-8 text-slate-600" />
+        <p className="mt-2 text-sm text-slate-300 font-medium">Relay Infrastructure Trace Unavailable</p>
+        <p className="mt-1 text-xs text-slate-500">No external routing hops or observable public origin could be retrieved for this email.</p>
       </div>
     );
   }
