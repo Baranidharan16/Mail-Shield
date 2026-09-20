@@ -201,9 +201,9 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full mt-2 h-11 rounded-xl bg-gradient-to-r from-phosphor-500 to-emerald-400
-                text-lab-950 font-bold text-sm tracking-wide flex items-center justify-center gap-2
-                shadow-lg shadow-phosphor-500/20 hover:brightness-110 active:scale-[0.99]
+              className="w-full mt-2 h-11 rounded-xl bg-ember hover:bg-ember-deep
+                text-snow font-semibold text-sm tracking-wide flex items-center justify-center gap-2
+                shadow-sm active:scale-[0.99]
                 transition-all duration-200 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {submitting ? (

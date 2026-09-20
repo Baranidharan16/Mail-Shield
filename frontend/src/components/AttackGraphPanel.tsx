@@ -12,17 +12,17 @@ interface Props {
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
-  EMAIL:          { label: "EMAIL",          color: "#3ddc97", icon: ShieldAlert },
-  IDENTITY:       { label: "IDENTITY",       color: "#6ee8b1", icon: User },
-  SENDER:         { label: "SENDER",         color: "#6ee8b1", icon: User },
-  REPLY_TO:       { label: "REPLY-TO",       color: "#f97316", icon: User },
-  IP:             { label: "IP ADDRESS",     color: "#3b82f6", icon: Server },
-  DOMAIN:         { label: "DOMAIN",         color: "#e8a23d", icon: Globe2 },
-  URL:            { label: "URL",            color: "#f97316", icon: Link2 },
-  AUTHENTICATION: { label: "AUTHENTICATION", color: "#8b5cf6", icon: Key },
-  AUTH:           { label: "AUTHENTICATION", color: "#8b5cf6", icon: Key },
-  THREAT:         { label: "THREAT",         color: "#e2483d", icon: AlertTriangle },
-  RISK:           { label: "RISK LEVEL",     color: "#ff6b5e", icon: ShieldCheck },
+  EMAIL:          { label: "EMAIL",          color: "#5f8f55", icon: ShieldAlert },
+  IDENTITY:       { label: "IDENTITY",       color: "#446c3d", icon: User },
+  SENDER:         { label: "SENDER",         color: "#446c3d", icon: User },
+  REPLY_TO:       { label: "REPLY-TO",       color: "#e0712a", icon: User },
+  IP:             { label: "IP ADDRESS",     color: "#0f66ae", icon: Server },
+  DOMAIN:         { label: "DOMAIN",         color: "#d99a2b", icon: Globe2 },
+  URL:            { label: "URL",            color: "#e0712a", icon: Link2 },
+  AUTHENTICATION: { label: "AUTHENTICATION", color: "#7a68a0", icon: Key },
+  AUTH:           { label: "AUTHENTICATION", color: "#7a68a0", icon: Key },
+  THREAT:         { label: "THREAT",         color: "#cf3520", icon: AlertTriangle },
+  RISK:           { label: "RISK LEVEL",     color: "#b9301f", icon: ShieldCheck },
 };
 
 function normType(t: string | undefined): string {
@@ -41,11 +41,11 @@ function normType(t: string | undefined): string {
 
 function getNodeColor(node: GraphNode): string {
   const ntype = normType(node.type);
-  if (node.status === "PASS") return "#3ddc97";
-  if (node.status === "FAIL" || node.status === "SOFTFAIL" || node.status === "PERMERROR") return "#e2483d";
-  if (node.risk_score !== undefined && node.risk_score >= 70) return "#e2483d";
-  if (node.risk_score !== undefined && node.risk_score >= 40) return "#f97316";
-  return TYPE_CONFIG[ntype]?.color ?? "#7c8fa0";
+  if (node.status === "PASS") return "#5f8f55";
+  if (node.status === "FAIL" || node.status === "SOFTFAIL" || node.status === "PERMERROR") return "#cf3520";
+  if (node.risk_score !== undefined && node.risk_score >= 70) return "#cf3520";
+  if (node.risk_score !== undefined && node.risk_score >= 40) return "#e0712a";
+  return TYPE_CONFIG[ntype]?.color ?? "#94928f";
 }
 
 function truncate(s: string, n = 22) {
@@ -164,13 +164,13 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
         >
           <defs>
             <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-              <polygon points="0 0, 8 3, 0 6" fill="#3ddc97" />
+              <polygon points="0 0, 8 3, 0 6" fill="#5f8f55" />
             </marker>
             <marker id="arrow-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-              <polygon points="0 0, 8 3, 0 6" fill="#e2483d" />
+              <polygon points="0 0, 8 3, 0 6" fill="#cf3520" />
             </marker>
             <marker id="arrow-neutral" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-              <polygon points="0 0, 8 3, 0 6" fill="#4a5a6b" />
+              <polygon points="0 0, 8 3, 0 6" fill="#b4b1ac" />
             </marker>
 
             {/* Glowing filter */}
@@ -196,7 +196,7 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
                 y1={20}
                 x2={guide.x}
                 y2={H - 20}
-                stroke="#19212a"
+                stroke="#e2dfda"
                 strokeWidth={1}
                 strokeDasharray="4 4"
               />
@@ -205,7 +205,7 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
                 y={18}
                 textAnchor="middle"
                 fontSize="9"
-                fill="#2f3c4a"
+                fill="#94928f"
                 fontFamily="IBM Plex Mono"
                 fontWeight="700"
                 letterSpacing="0.08em"
@@ -223,7 +223,7 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
 
             const rel = e.relation || e.label || "";
             const isHighRiskEdge = rel.includes("MISMATCH") || rel.includes("THREAT") || rel.includes("CRITICAL") || rel.includes("FAIL");
-            const strokeColor = isHighRiskEdge ? "#e2483d" : "#2f3c4a";
+            const strokeColor = isHighRiskEdge ? "#cf3520" : "#d7d6d4";
             const markerId = isHighRiskEdge ? "url(#arrow-red)" : "url(#arrow-neutral)";
 
             // Calculate bezier curve control points for smooth routing
@@ -249,7 +249,7 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
                     y={(src.y + tgt.y) / 2 - 3}
                     textAnchor="middle"
                     fontSize="8.5"
-                    fill={isHighRiskEdge ? "#ff6b5e" : "#4a5a6b"}
+                    fill={isHighRiskEdge ? "#b9301f" : "#8f8c88"}
                     fontFamily="IBM Plex Mono"
                     fontWeight="600"
                   >
@@ -290,7 +290,7 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
                 {/* Core node */}
                 <circle
                   r={r}
-                  fill="#10151a"
+                  fill="#fefdfc"
                   stroke={color}
                   strokeWidth={isRoot || isSelected ? 2.5 : 1.75}
                   filter="url(#glow-node)"
@@ -318,7 +318,7 @@ export default function AttackGraphPanel({ data, loading, geo, onSelectOrigin }:
                   y={r + 14}
                   textAnchor="middle"
                   fontSize="9"
-                  fill={isSelected ? "#e8eef2" : "#a9bac8"}
+                  fill={isSelected ? "#25221e" : "#4a4744"}
                   fontFamily="IBM Plex Mono"
                   fontWeight={isSelected || isRoot ? "700" : "500"}
                 >

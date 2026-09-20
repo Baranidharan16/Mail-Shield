@@ -25,11 +25,11 @@ const ACTION_ICONS: Record<string, any> = {
 };
 
 const ACTION_COLORS: Record<string, string> = {
-  EVIDENCE_UPLOAD: "#3ddc97",
-  EVIDENCE_ANCHORED: "#8b5cf6",
-  FORENSIC_ANALYSIS_COMPLETE: "#3ddc97",
-  THREAT_INTELLIGENCE: "#e8a23d",
-  CORRELATION: "#3b82f6",
+  EVIDENCE_UPLOAD: "#5f8f55",
+  EVIDENCE_ANCHORED: "#7a68a0",
+  FORENSIC_ANALYSIS_COMPLETE: "#5f8f55",
+  THREAT_INTELLIGENCE: "#d99a2b",
+  CORRELATION: "#0f66ae",
 };
 
 interface Props {
@@ -61,7 +61,7 @@ export default function ChainOfCustody({ data }: Props) {
     <div className="space-y-0">
       {entries.map((entry, i) => {
         const Icon = ACTION_ICONS[entry.action] ?? Lock;
-        const color = ACTION_COLORS[entry.action] ?? "#7c8fa0";
+        const color = ACTION_COLORS[entry.action] ?? "#94928f";
         const isLast = i === entries.length - 1;
 
         return (

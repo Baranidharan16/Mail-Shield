@@ -57,16 +57,16 @@ const BASE_LAYERS: Record<BaseLayerKey, { label: string; url: string; attributio
     subdomains: "abc",
   },
 };
-const FALLBACK_ORDER: BaseLayerKey[] = ["dark", "street", "satellite", "terrain"];
+const FALLBACK_ORDER: BaseLayerKey[] = ["street", "dark", "satellite", "terrain"];
 
 const hasCoords = (g?: { lat?: number | null; lon?: number | null } | null) =>
   !!g && typeof g.lat === "number" && typeof g.lon === "number" && !isNaN(g.lat) && !isNaN(g.lon);
 
 const markerColor = (node: ObservableNode) => {
-  if (node.is_earliest_reliable) return "#ef4444"; // red — origin candidate
-  if (node.source === "client_ip_header") return "#f97316"; // orange — client IP
-  if (node.is_private) return "#64748b"; // grey — private/RFC1918
-  return "#10b981"; // green — relay hop
+  if (node.is_earliest_reliable) return "#cf3520"; // red — origin candidate
+  if (node.source === "client_ip_header") return "#e0712a"; // orange — client IP
+  if (node.is_private) return "#8f8c88"; // grey — private/RFC1918
+  return "#5f8f55"; // green — relay hop
 };
 
 const esc = (v: unknown) =>
@@ -99,7 +99,7 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResul
   const boundsRef = useRef<L.LatLngBounds | null>(null);
   const failedLayers = useRef<Set<BaseLayerKey>>(new Set());
   const [selectedNode, setSelectedNode] = useState<ObservableNode | null>(traceResult?.earliest_node || null);
-  const [baseLayer, setBaseLayer] = useState<BaseLayerKey>("dark");
+  const [baseLayer, setBaseLayer] = useState<BaseLayerKey>("street");
   const [expanded, setExpanded] = useState(false);
   const [tileWarning, setTileWarning] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -158,7 +158,7 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResul
       const rep = node.reputation;
       const repLine = rep?.checked
         ? rep.listed_on && rep.listed_on.length
-          ? `<div style="color:#dc2626"><b>DNSBL:</b> listed on ${esc(rep.listed_on.join(", "))}</div>`
+          ? `<div style="color:#a62a19"><b>DNSBL:</b> listed on ${esc(rep.listed_on.join(", "))}</div>`
           : `<div><b>DNSBL:</b> not listed</div>`
         : "";
       const marker = L.marker([lat, lon], {
@@ -176,9 +176,9 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResul
           ${g.asn ? `<div><b>ASN:</b> ${esc(g.asn)}</div>` : ""}
           ${node.from_host ? `<div><b>Host:</b> ${esc(node.from_host)}</div>` : ""}
           ${node.infrastructure_type ? `<div><b>Infra:</b> ${esc(node.infrastructure_type)}</div>` : ""}
-          ${g.proxy ? `<div style="color:#dc2626"><b>Proxy / VPN / Tor flag</b></div>` : ""}
+          ${g.proxy ? `<div style="color:#a62a19"><b>Proxy / VPN / Tor flag</b></div>` : ""}
           ${repLine}
-          <div style="color:#94a3b8;font-size:10px;margin-top:6px">Lat ${lat.toFixed(3)} / Lon ${lon.toFixed(3)} · ${esc(g.source || "GeoIP")}</div>
+          <div style="color:#8f8c88;font-size:10px;margin-top:6px">Lat ${lat.toFixed(3)} / Lon ${lon.toFixed(3)} · ${esc(g.source || "GeoIP")}</div>
           ${node.is_earliest_reliable ? `<div style="background:#fef3c7;color:#92400e;padding:3px 6px;border-radius:4px;font-size:10px;margin-top:6px">Physical location cannot be determined with certainty. This is the earliest observable IP in the path.</div>` : ""}
         </div>`);
       marker.on("click", () => setSelectedNode(node));
@@ -186,7 +186,7 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResul
 
     // Chronological relay path, animated
     if (latLngs.length > 1) {
-      L.polyline(latLngs, { color: "#f59e0b", weight: 3, opacity: 0.9, dashArray: "10 8", className: "ms-relay-path" }).addTo(map);
+      L.polyline(latLngs, { color: "#d99a2b", weight: 3, opacity: 0.9, dashArray: "10 8", className: "ms-relay-path" }).addTo(map);
     }
 
     // Claimed-sender domain infrastructure (DNS A / MX)
@@ -198,8 +198,8 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({ traceResul
         .addTo(map)
         .bindPopup(`
           <div style="font-size:12px;min-width:220px;line-height:1.6">
-            <div style="font-weight:700;margin-bottom:4px;color:#a855f7">Sender domain infrastructure (${esc(it.record)})</div>
-            <div><b>Domain:</b> ${esc(it.domain)} <span style="color:#94a3b8">(${esc(String(it.role).replace(/_/g, " ").toLowerCase())})</span></div>
+            <div style="font-weight:700;margin-bottom:4px;color:#7a68a0">Sender domain infrastructure (${esc(it.record)})</div>
+            <div><b>Domain:</b> ${esc(it.domain)} <span style="color:#8f8c88">(${esc(String(it.role).replace(/_/g, " ").toLowerCase())})</span></div>
             <div><b>Host:</b> ${esc(it.host)}</div>
             <div><b>IP:</b> ${esc(it.ip)}</div>
             <div><b>Location:</b> ${esc(g.city || "Unknown city")}, ${esc(g.country || "Unknown country")}</div>

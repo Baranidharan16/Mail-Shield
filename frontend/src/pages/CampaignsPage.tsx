@@ -249,8 +249,8 @@ export const CampaignsPage: React.FC = () => {
             <svg className="w-full h-full" viewBox="0 0 800 350">
               <defs>
                 <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.6" />
-                  <stop offset="100%" stopColor="#ef4444" stopOpacity="0.6" />
+                  <stop offset="0%" stopColor="#5f8f55" stopOpacity="0.6" />
+                  <stop offset="100%" stopColor="#cf3520" stopOpacity="0.6" />
                 </linearGradient>
               </defs>
 
@@ -289,7 +289,7 @@ export const CampaignsPage: React.FC = () => {
                       cx={x}
                       cy={y}
                       r={isCase ? 16 : 11}
-                      fill={isCase ? "#ef4444" : isDom ? "#3b82f6" : "#f59e0b"}
+                      fill={isCase ? "#cf3520" : isDom ? "#0f66ae" : "#d99a2b"}
                       fillOpacity={0.8}
                       stroke="#ffffff"
                       strokeWidth={1.5}
@@ -298,7 +298,7 @@ export const CampaignsPage: React.FC = () => {
                     <text
                       x={x}
                       y={y + 24}
-                      fill="#94a3b8"
+                      fill="#8f8c88"
                       fontSize="10"
                       textAnchor="middle"
                       className="font-mono select-none"

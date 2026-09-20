@@ -5,42 +5,42 @@ const ATTACK_TYPE_MAP: Record<string, { label: string; description: string; colo
   PHISHING: {
     label: "Phishing Attack",
     description: "Fraudulent email designed to steal credentials or sensitive information by impersonating a trusted entity.",
-    color: "#e2483d",
+    color: "#cf3520",
   },
   BUSINESS_EMAIL_COMPROMISE: {
     label: "Business Email Compromise (BEC)",
     description: "Targeted attack spoofing a CEO, vendor, or partner to manipulate an employee into fraud.",
-    color: "#f97316",
+    color: "#e0712a",
   },
   MALWARE_DELIVERY: {
     label: "Malware Delivery",
     description: "Email carries or links to a payload designed to install malicious software on the recipient system.",
-    color: "#8b5cf6",
+    color: "#7a68a0",
   },
   SPEAR_PHISHING: {
     label: "Spear Phishing",
     description: "Targeted phishing campaign using personalized information to increase credibility and deception.",
-    color: "#e2483d",
+    color: "#cf3520",
   },
   ADVANCE_FEE_FRAUD: {
     label: "Advance Fee Fraud / 419 Scam",
     description: "Fraudulent offer promising large rewards in exchange for upfront fees or personal information.",
-    color: "#e8a23d",
+    color: "#d99a2b",
   },
   SPAM: {
     label: "Unsolicited Bulk Email / Spam",
     description: "Mass-distributed email without targeted deception intent, often commercial or promotional.",
-    color: "#3b82f6",
+    color: "#0f66ae",
   },
   LOOKALIKE_DOMAIN: {
     label: "Lookalike Domain Attack",
     description: "Uses a domain visually similar to a legitimate brand to deceive recipients into trusting the sender.",
-    color: "#f97316",
+    color: "#e0712a",
   },
   BENIGN: {
     label: "No Threat Detected",
     description: "Email analysis did not identify malicious indicators consistent with a threat classification.",
-    color: "#3ddc97",
+    color: "#5f8f55",
   },
 };
 
@@ -138,10 +138,10 @@ export default function AttackClassification({ findings, rsb, classification }: 
             className="font-data text-xl font-bold evidence-tag"
             style={{
               color:
-                classification === "CRITICAL" ? "#ff6b5e" :
-                classification === "HIGH" ? "#f97316" :
-                classification === "MEDIUM" ? "#e8a23d" :
-                "#3ddc97",
+                classification === "CRITICAL" ? "#b9301f" :
+                classification === "HIGH" ? "#e0712a" :
+                classification === "MEDIUM" ? "#d99a2b" :
+                "#5f8f55",
             }}
           >
             {classification ?? "—"}

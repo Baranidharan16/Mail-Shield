@@ -46,7 +46,7 @@ function Banner({ kind, text }: { kind: "error" | "ok"; text: string }) {
 
 const inputCls = "input-glass pl-10 pr-4 text-sm h-11 w-full text-lab-100 rounded-xl focus:border-phosphor-500/50";
 const buttonCls =
-  "w-full mt-2 h-11 rounded-xl bg-gradient-to-r from-phosphor-500 to-emerald-400 text-lab-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60";
+  "w-full mt-2 h-11 rounded-xl bg-ember hover:bg-ember-deep text-snow font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60";
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");

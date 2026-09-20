@@ -119,11 +119,11 @@ export function scoreToClassification(score: number): Level {
 
 export function sevColor(sev: string): string {
   const map: Record<string, string> = {
-    CRITICAL: "#ff6b5e",
-    HIGH: "#f97316",
-    MEDIUM: "#e8a23d",
-    LOW: "#3b82f6",
-    INFO: "#7c8fa0",
+    CRITICAL: "#b9301f",
+    HIGH: "#e0712a",
+    MEDIUM: "#d99a2b",
+    LOW: "#0f66ae",
+    INFO: "#94928f",
   };
-  return map[(sev || "INFO").toUpperCase()] ?? "#7c8fa0";
+  return map[(sev || "INFO").toUpperCase()] ?? "#94928f";
 }

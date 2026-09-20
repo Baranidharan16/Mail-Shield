@@ -104,11 +104,11 @@ export default function Layout() {
 
           {/* Brand mark (top bar, desktop hidden — sidebar has full brand) */}
           <div className="flex items-center gap-2 lg:hidden">
-            <div className="relative flex items-center justify-center w-7 h-7 rounded-md bg-phosphor-500/15 border border-phosphor-500/35">
+            <div className="relative flex items-center justify-center w-7 h-7 rounded-md bg-ember border border-ember">
               <svg viewBox="0 0 40 30" className="w-4 h-4 svg-glow">
                 <path
                   d={morphShieldPaths[shieldState]}
-                  fill="none" stroke="#3ddc97" strokeWidth="2.5"
+                  fill="none" stroke="#ffffff" strokeWidth="2.5"
                   strokeLinecap="round" strokeLinejoin="round"
                   className="transition-all duration-500 ease-in-out"
                 />
@@ -212,15 +212,15 @@ export default function Layout() {
 
           {/* Brand */}
           <div className="px-5 py-5 border-b border-white/[0.06] flex items-center gap-3 flex-shrink-0">
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-phosphor-500/12 border border-phosphor-500/30 glow-green">
+            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-ember border border-ember">
               <svg viewBox="0 0 40 30" className="w-6 h-6 svg-glow">
                 <path
                   d={morphShieldPaths[shieldState]}
-                  fill="none" stroke="#3ddc97" strokeWidth="2"
+                  fill="none" stroke="#ffffff" strokeWidth="2"
                   strokeLinecap="round" strokeLinejoin="round"
                   className="transition-all duration-500 ease-in-out"
                 />
-                <circle cx="20" cy="14" r="2" fill="#3ddc97" className="animate-pulse" />
+                <circle cx="20" cy="14" r="2" fill="#ffffff" className="animate-pulse" />
               </svg>
               <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-phosphor-500 ring-2 ring-lab-950" />
             </div>

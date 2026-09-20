@@ -48,9 +48,6 @@ export default function AIDetectionAnalysis({ mlDetection, nlpDetection }: AIDet
 
   return (
     <div className="glass-card p-6 rounded-2xl border border-phosphor-500/25 bg-black/40 backdrop-blur-xl shadow-2xl relative overflow-hidden mb-6">
-      {/* Background Accent Glow */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-phosphor-500/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-5 border-b border-white/[0.08] relative z-10">

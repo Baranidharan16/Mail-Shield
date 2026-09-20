@@ -533,7 +533,7 @@ export default function MailShieldChatbot({ emailContext: propContext }: Props) 
                     <div
                       className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 relative group shadow-sm ${
                         m.role === "user"
-                          ? "bg-gradient-to-br from-phosphor-700/80 to-phosphor-900/90 text-white border border-phosphor-500/30 rounded-br-sm"
+                          ? "bg-ink text-snow border border-ink rounded-br-sm"
                           : m.error
                           ? "bg-crimson-glow/10 border border-crimson-glow/30 text-crimson-glow rounded-bl-sm"
                           : "bg-lab-900/80 border border-white/[0.08] text-lab-200 rounded-bl-sm"

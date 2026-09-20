@@ -111,7 +111,7 @@ export const BlockchainBlockChainVisualizer: React.FC<{ className?: string }> = 
   };
 
   return (
-    <div className={`rounded-2xl border border-slate-800 bg-[#1e2227] p-6 text-white shadow-2xl ${className}`}>
+    <div className={`rounded-2xl border border-slate-800 bg-[#fefdfc] p-6 text-white shadow-2xl ${className}`}>
       {/* Top Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-700/60 mb-6">
         <div className="flex items-center gap-3">
@@ -136,7 +136,7 @@ export const BlockchainBlockChainVisualizer: React.FC<{ className?: string }> = 
           <button
             onClick={() => setMode("forensic")}
             className={`px-3 py-1 rounded transition-all ${
-              mode === "forensic" ? "bg-purple-600 text-white font-semibold" : "text-slate-400 hover:text-white"
+              mode === "forensic" ? "bg-purple-600 text-snow font-semibold" : "text-slate-400 hover:text-white"
             }`}
           >
             Forensic Evidence
@@ -144,7 +144,7 @@ export const BlockchainBlockChainVisualizer: React.FC<{ className?: string }> = 
           <button
             onClick={() => setMode("crypto")}
             className={`px-3 py-1 rounded transition-all ${
-              mode === "crypto" ? "bg-purple-600 text-white font-semibold" : "text-slate-400 hover:text-white"
+              mode === "crypto" ? "bg-purple-600 text-snow font-semibold" : "text-slate-400 hover:text-white"
             }`}
           >
             Classic Ledger
@@ -208,10 +208,10 @@ export const BlockchainBlockChainVisualizer: React.FC<{ className?: string }> = 
                 <div
                   className={`w-44 sm:w-48 rounded-2xl border-2 p-3.5 flex flex-col justify-between transition-all duration-300 ${
                     color === "green"
-                      ? "border-emerald-500/80 bg-slate-900/90 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+                      ? "border-emerald-500/80 bg-slate-900/90 shadow-[0_0_15px_rgba(37,34,30,0.06)]"
                       : color === "orange"
-                      ? "border-amber-500/90 bg-slate-900/90 shadow-[0_0_15px_rgba(245,158,11,0.2)]"
-                      : "border-red-500/80 bg-slate-900/90 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                      ? "border-amber-500/90 bg-slate-900/90 shadow-[0_0_15px_rgba(37,34,30,0.06)]"
+                      : "border-red-500/80 bg-slate-900/90 shadow-[0_0_15px_rgba(37,34,30,0.06)]"
                   }`}
                 >
                   {/* Block Header */}

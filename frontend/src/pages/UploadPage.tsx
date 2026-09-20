@@ -196,7 +196,7 @@ export default function UploadPage() {
           onClick={() => inputRef.current?.click()}
           className={`glass-section rounded-2xl p-10 md:p-12 text-center cursor-pointer transition-all duration-300 ${
             dragOver
-              ? "border-phosphor-500/50 bg-phosphor-500/8 shadow-[0_0_30px_rgba(61,220,151,0.12)]"
+              ? "border-phosphor-500/50 bg-phosphor-500/8 shadow-[0_0_30px_rgba(37,34,30,0.05)]"
               : file
               ? "border-phosphor-500/30 bg-phosphor-500/5"
               : "hover:border-white/15 hover:bg-white/[0.02]"

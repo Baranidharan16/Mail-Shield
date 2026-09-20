@@ -271,7 +271,7 @@ export default function DashboardPage() {
               <>
                 <button
                   onClick={() => setShowGmailDrawer(!showGmailDrawer)}
-                  className="btn-glass-primary text-xs px-3.5 py-2 flex items-center gap-1.5 cursor-pointer"
+                  className="btn-glass-secondary text-xs px-3.5 py-2 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Mail className="h-3.5 w-3.5" />
                   VIEW EMAILS
@@ -291,7 +291,7 @@ export default function DashboardPage() {
               <button
                 onClick={handleConnectGmail}
                 disabled={gmailLoading}
-                className="btn-glass-primary text-xs px-4 py-2.5 flex items-center gap-2 cursor-pointer"
+                className="btn-glass-secondary text-xs px-4 py-2.5 flex items-center gap-2 cursor-pointer"
               >
                 <Mail className="h-4 w-4" />
                 CONNECT GMAIL
@@ -382,7 +382,7 @@ export default function DashboardPage() {
                             <button
                               onClick={() => handleAnalyzeEmail(m)}
                               disabled={isAnalyzing}
-                              className="btn-glass-primary py-1 px-2.5 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              className="btn-glass-secondary py-1 px-2.5 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                             >
                               {isAnalyzing ? (
                                 <RefreshCw className="h-3 w-3 animate-spin" />
@@ -425,10 +425,10 @@ export default function DashboardPage() {
             </span>
           </div>
           <div className="p-5 space-y-3.5">
-            <MiniBar label="CRITICAL" count={stats?.critical ?? 0} total={totalThreats} color="#ff6b5e" />
-            <MiniBar label="HIGH" count={stats?.high ?? 0} total={totalThreats} color="#f97316" />
-            <MiniBar label="MEDIUM" count={stats?.medium ?? 0} total={totalThreats} color="#e8a23d" />
-            <MiniBar label="LOW" count={stats?.low ?? 0} total={totalThreats} color="#3b82f6" />
+            <MiniBar label="CRITICAL" count={stats?.critical ?? 0} total={totalThreats} color="#b9301f" />
+            <MiniBar label="HIGH" count={stats?.high ?? 0} total={totalThreats} color="#e0712a" />
+            <MiniBar label="MEDIUM" count={stats?.medium ?? 0} total={totalThreats} color="#d99a2b" />
+            <MiniBar label="LOW" count={stats?.low ?? 0} total={totalThreats} color="#0f66ae" />
           </div>
           <div className="px-5 pb-4 grid grid-cols-3 gap-3 border-t border-white/[0.05] pt-4">
             {[

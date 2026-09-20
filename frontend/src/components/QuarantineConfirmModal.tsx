@@ -33,7 +33,7 @@ export const QuarantineConfirmModal: React.FC<QuarantineConfirmModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
       <div
-        className="relative w-full max-w-md rounded-2xl border border-red-500/30 bg-[#0c1017]/95 p-6 shadow-2xl shadow-red-950/40 text-left"
+        className="relative w-full max-w-md rounded-2xl border border-red-500/30 bg-[#fefdfc]/95 p-6 shadow-2xl shadow-red-950/40 text-left"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
@@ -123,7 +123,7 @@ export const QuarantineConfirmModal: React.FC<QuarantineConfirmModalProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className="px-4 py-2 rounded-xl border border-red-500/40 bg-red-600/80 hover:bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-red-950/50 transition-all disabled:opacity-60 cursor-pointer"
+            className="px-4 py-2 rounded-xl border border-red-500/40 bg-red-600/80 hover:bg-red-600 text-snow text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-red-950/50 transition-all disabled:opacity-60 cursor-pointer"
           >
             {loading ? (
               <>

@@ -209,7 +209,7 @@ export const SecurityDecisionTree: React.FC<SecurityDecisionTreeProps> = ({
           <button
             onClick={() => handleAction("QUARANTINE_MESSAGE")}
             disabled={!!executingAction}
-            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-snow text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
           >
             <AlertOctagon className="h-3.5 w-3.5" />
             {executingAction === "QUARANTINE_MESSAGE" ? "Quarantining..." : "Quarantine Message"}
@@ -218,7 +218,7 @@ export const SecurityDecisionTree: React.FC<SecurityDecisionTreeProps> = ({
           <button
             onClick={() => handleAction("REVOKE_TOKEN")}
             disabled={!!executingAction}
-            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-snow text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
           >
             <KeyRound className="h-3.5 w-3.5" />
             {executingAction === "REVOKE_TOKEN" ? "Revoking..." : "Revoke User Session"}
@@ -227,7 +227,7 @@ export const SecurityDecisionTree: React.FC<SecurityDecisionTreeProps> = ({
           <button
             onClick={() => handleAction("PUSH_FIREWALL_BLOCK")}
             disabled={!!executingAction}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-snow text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
           >
             <Lock className="h-3.5 w-3.5" />
             {executingAction === "PUSH_FIREWALL_BLOCK" ? "Pushing..." : "Block Relay IP at Firewall"}

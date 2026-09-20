@@ -141,7 +141,7 @@ export default function IntegrityLedgerPage() {
               {/* Block index accent */}
               <div
                 className="absolute left-0 top-0 bottom-0 w-1 rounded-l-md"
-                style={{ background: i === 0 ? "linear-gradient(to bottom, #3ddc97, #6ee8b1)" : "linear-gradient(to bottom, #8b5cf6, #6d28d9)" }}
+                style={{ background: i === 0 ? "linear-gradient(to bottom, #5f8f55, #446c3d)" : "linear-gradient(to bottom, #7a68a0, #5d4b7c)" }}
               />
 
               <div className="pl-2 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -149,7 +149,7 @@ export default function IntegrityLedgerPage() {
                   <div className="flex items-center gap-2">
                     <span
                       className="font-data font-bold text-sm"
-                      style={{ color: i === 0 ? "#3ddc97" : "#8b5cf6" }}
+                      style={{ color: i === 0 ? "#5f8f55" : "#7a68a0" }}
                     >
                       Block #{block.block_index}
                     </span>

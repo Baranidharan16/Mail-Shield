@@ -360,7 +360,7 @@ export const GmailInboxPanel: React.FC<GmailInboxPanelProps> = ({
                   <button
                     onClick={() => handleAnalyze(msg)}
                     disabled={isAnalyzing}
-                    className="btn-glass-primary py-1.5 px-3 text-xs flex items-center gap-1.5 disabled:opacity-50"
+                    className="btn-glass-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {isAnalyzing ? (
                       <RefreshCw className="h-3.5 w-3.5 animate-spin" />

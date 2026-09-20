@@ -343,7 +343,7 @@ export default function InvestigationDetailPage() {
                 { label: "Social Engineering", score: rsb.social_engineering_score },
                 { label: "Infrastructure", score: rsb.infrastructure_score },
               ].map(({ label, score }) => {
-                const color = score >= 70 ? "#e2483d" : score >= 40 ? "#e8a23d" : "#3ddc97";
+                const color = score >= 70 ? "#cf3520" : score >= 40 ? "#d99a2b" : "#5f8f55";
                 return (
                   <div key={label} className="flex items-center gap-3">
                     <span className="text-xs text-lab-500 w-36 shrink-0">{label}</span>

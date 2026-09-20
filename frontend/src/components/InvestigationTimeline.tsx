@@ -24,13 +24,13 @@ const ICON_MAP: Record<string, any> = {
 };
 
 const TYPE_COLORS: Record<string, string> = {
-  INGESTION: "#3ddc97",
-  EMAIL_DATE: "#6ee8b1",
-  RELAY_HOP: "#3b82f6",
-  SYSTEM: "#7c8fa0",
-  ANALYSIS_COMPLETE: "#3ddc97",
-  REPORT: "#a9bac8",
-  BLOCKCHAIN: "#8b5cf6",
+  INGESTION: "#5f8f55",
+  EMAIL_DATE: "#446c3d",
+  RELAY_HOP: "#0f66ae",
+  SYSTEM: "#94928f",
+  ANALYSIS_COMPLETE: "#5f8f55",
+  REPORT: "#8f8c88",
+  BLOCKCHAIN: "#7a68a0",
 };
 
 function formatTs(ts: string | null) {
@@ -63,7 +63,7 @@ export default function InvestigationTimeline({ events }: Props) {
     <div className="relative">
       {events.map((ev, i) => {
         const Icon = ICON_MAP[ev.icon] ?? Activity;
-        const color = TYPE_COLORS[ev.type] ?? "#7c8fa0";
+        const color = TYPE_COLORS[ev.type] ?? "#94928f";
         const isLast = i === events.length - 1;
 
         return (

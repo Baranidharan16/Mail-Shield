@@ -9,13 +9,13 @@ interface Props {
 }
 
 const DIMENSION_META: Record<string, { icon: any; label: string; color: string }> = {
-  authentication:    { icon: Shield,               label: "Authentication Analysis",   color: "#e2483d" },
-  header:            { icon: Server,               label: "Header Anomalies",           color: "#f97316" },
-  sender_identity:   { icon: Globe2,               label: "Sender Identity",            color: "#e8a23d" },
-  domain:            { icon: Globe2,               label: "Domain Reputation",          color: "#e8a23d" },
-  url:               { icon: Link2,                label: "URL Analysis",               color: "#f97316" },
-  social_engineering:{ icon: MessageSquareWarning, label: "Social Engineering",         color: "#e2483d" },
-  infrastructure:    { icon: Server,               label: "Infrastructure",             color: "#7c8fa0" },
+  authentication:    { icon: Shield,               label: "Authentication Analysis",   color: "#cf3520" },
+  header:            { icon: Server,               label: "Header Anomalies",           color: "#e0712a" },
+  sender_identity:   { icon: Globe2,               label: "Sender Identity",            color: "#d99a2b" },
+  domain:            { icon: Globe2,               label: "Domain Reputation",          color: "#d99a2b" },
+  url:               { icon: Link2,                label: "URL Analysis",               color: "#e0712a" },
+  social_engineering:{ icon: MessageSquareWarning, label: "Social Engineering",         color: "#cf3520" },
+  infrastructure:    { icon: Server,               label: "Infrastructure",             color: "#94928f" },
 };
 
 function FactorRow({
@@ -28,7 +28,7 @@ function FactorRow({
   auth?: AuthenticationResultOut | null;
 }) {
   const [open, setOpen] = useState(false);
-  const meta = DIMENSION_META[name] ?? { icon: Shield, label: name.replace(/_/g, " "), color: "#7c8fa0" };
+  const meta = DIMENSION_META[name] ?? { icon: Shield, label: name.replace(/_/g, " "), color: "#94928f" };
   const Icon = meta.icon;
   const pct = Math.min(100, dim.score);
   const contribution = dim.weighted_contribution.toFixed(1);

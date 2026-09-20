@@ -8,10 +8,10 @@ interface Props {
 }
 
 const COLOR_MAP: Record<string, string> = {
-  LOW: "#3ddc97",
-  MEDIUM: "#e8a23d",
-  HIGH: "#e2483d",
-  CRITICAL: "#ff6b5e",
+  LOW: "#5f8f55",
+  MEDIUM: "#d99a2b",
+  HIGH: "#cf3520",
+  CRITICAL: "#b9301f",
 };
 
 export default function ThreatGauge({ score, classification, confidence, size = 176 }: Props) {
@@ -19,7 +19,7 @@ export default function ThreatGauge({ score, classification, confidence, size = 
   const circumference = 2 * Math.PI * radius;
   const pct = Math.max(0, Math.min(100, score)) / 100;
   const dash = circumference * pct;
-  const color = COLOR_MAP[classification] ?? "#7c8fa0";
+  const color = COLOR_MAP[classification] ?? "#94928f";
 
   return (
     <div className="flex flex-col items-center">

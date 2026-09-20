@@ -72,7 +72,6 @@ export default function MailShieldLiveAnalysis({ data, onReset, onViewDetails, i
     <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
       {/* Top Banner: Email Metadata */}
       <div className="glass-section p-5 md:p-6 rounded-2xl border-white/10 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-phosphor-500/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4 mb-4">
           <div>
