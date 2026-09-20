@@ -98,8 +98,17 @@ export default function DashboardPage() {
       const st = await getGmailStatus();
       setGmailStatus(st);
       if (st.connected) {
-        const msgs = await getGmailMessages();
-        setGmailMessages(msgs);
+        if (st.gmail_error) {
+          setGmailError(st.gmail_error);
+          setGmailMessages([]);
+        } else {
+          try {
+            const msgs = await getGmailMessages();
+            setGmailMessages(msgs);
+          } catch (err: any) {
+            setGmailError(err?.response?.data?.detail || "Failed to load Gmail messages.");
+          }
+        }
       }
     } catch {
       setGmailStatus(null);
@@ -156,7 +165,7 @@ export default function DashboardPage() {
       const msgs = await getGmailMessages(searchQuery);
       setGmailMessages(msgs);
     } catch (err: any) {
-      setGmailError("Failed to search Gmail messages.");
+      setGmailError(err?.response?.data?.detail || "Failed to search Gmail messages.");
     } finally {
       setGmailLoading(false);
     }

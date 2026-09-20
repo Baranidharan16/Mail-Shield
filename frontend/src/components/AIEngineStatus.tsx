@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Cpu, Circle } from "lucide-react";
+import { Cpu } from "lucide-react";
 import { getModelStatus } from "../api/client";
 import type { ModelStatusResponse } from "../types/investigation";
 
@@ -30,7 +30,6 @@ export default function AIEngineStatus({ compact = false }: { compact?: boolean 
   const nlpLoaded = status?.nlp_model_loaded ?? false;
   const geminiStatus = status?.gemini_status ?? (status?.gemini_configured ? "CONNECTED" : "UNAVAILABLE");
   const sarvamStatus = status?.sarvam_voice_status ?? "CONNECTED";
-  const ollamaStatus = status?.ollama_status ?? "NOT CONFIGURED";
 
   if (compact) {
     return (
@@ -85,22 +84,6 @@ export default function AIEngineStatus({ compact = false }: { compact?: boolean 
               {sarvamStatus}
             </span>
           </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-lab-500">OLLAMA</span>
-            <span className="flex items-center gap-1 text-lab-500 font-mono">
-              <Circle size={6} className="text-lab-600" />
-              {ollamaStatus}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between pt-1 border-t border-white/[0.05]">
-            <span className="text-lab-500">AUTONOMOUS AGENT</span>
-            <span className="flex items-center gap-1 text-lab-500 font-mono">
-              <Circle size={6} className="text-lab-600" />
-              NOT CONFIGURED
-            </span>
-          </div>
         </div>
       </div>
     );
@@ -118,7 +101,7 @@ export default function AIEngineStatus({ compact = false }: { compact?: boolean 
         </span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 text-xs font-mono">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 text-xs font-mono">
         <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
           <div className="text-[10px] text-lab-400 mb-1">ML MODEL</div>
           <div className={`flex items-center gap-1.5 font-bold ${mlLoaded ? "text-phosphor-400" : "text-crimson-glow"}`}>
@@ -162,24 +145,6 @@ export default function AIEngineStatus({ compact = false }: { compact?: boolean 
             {sarvamStatus}
           </div>
           <div className="text-[9px] text-lab-500 mt-1">22 Indian Languages</div>
-        </div>
-
-        <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
-          <div className="text-[10px] text-lab-400 mb-1">OLLAMA</div>
-          <div className="flex items-center gap-1.5 text-lab-500">
-            <Circle size={8} className="text-lab-600" />
-            {ollamaStatus}
-          </div>
-          <div className="text-[9px] text-lab-600 mt-1">Local Provider</div>
-        </div>
-
-        <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
-          <div className="text-[10px] text-lab-400 mb-1">AUTONOMOUS AGENT</div>
-          <div className="flex items-center gap-1.5 text-lab-500">
-            <Circle size={8} className="text-lab-600" />
-            NOT CONFIGURED
-          </div>
-          <div className="text-[9px] text-lab-600 mt-1">Future Extension</div>
         </div>
       </div>
     </div>

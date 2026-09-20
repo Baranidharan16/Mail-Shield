@@ -241,20 +241,37 @@ async def get_gmail_status(
             "user_id": current_user.id,
         }
 
-    # Try to fetch live profile
+    # Try to fetch live profile (also tells us whether Gmail API access works)
     session = load_user_gmail_session(current_user.id, db)
     messages_total = 0
-    if session:
+    gmail_error = None
+    if not session:
+        gmail_error = ("Stored Gmail token could not be decrypted (FERNET_KEY or "
+                       "JWT_SECRET_KEY changed). Click Disconnect and connect Gmail again.")
+    else:
         try:
-            profile = await session.fetch_profile()
-            messages_total = profile.get("messagesTotal", 0)
-        except Exception:
-            pass
+            import httpx
+            from services.gmail_service import GMAIL_API_BASE, explain_google_error
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{GMAIL_API_BASE}/profile", headers=session._headers)
+            if resp.status_code == 200:
+                profile = resp.json()
+                messages_total = profile.get("messagesTotal", 0)
+                live_email = profile.get("emailAddress", "")
+                if live_email and not account.google_email:
+                    account.google_email = live_email
+                    account.google_account_email = account.google_account_email or live_email
+                    db.commit()
+            else:
+                gmail_error = explain_google_error(resp)
+        except Exception as exc:  # noqa: BLE001
+            gmail_error = f"Could not reach Gmail: {type(exc).__name__}"
 
     return {
         "connected": True,
         "email": account.google_email or "",
         "messages_total": messages_total,
+        "gmail_error": gmail_error,
         "user_id": current_user.id,
         "connected_at": account.connected_at.isoformat() if account.connected_at else None,
     }

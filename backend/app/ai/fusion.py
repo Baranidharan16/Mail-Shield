@@ -175,8 +175,11 @@ def fuse(
     # Neither model alone can push a message into the THREAT band.
     s_p = structured_pred.class_probabilities.get("PHISHING") if structured_pred.available else None
     t_p = text_pred.class_probabilities.get("PHISHING") if text_pred.available else None
-    corroborated = bool(forensic.social_engineering_indicators or forensic.header_findings
-                        or any(u.risk_score >= 40 for u in forensic.url_findings))
+    # Only real evidence corroborates the models - LOW/INFO header notes do not.
+    corroborated = bool(
+        [i for i in forensic.social_engineering_indicators if i.indicator_type != "spam_bulk"]
+        or [f for f in forensic.header_findings if f.severity in ("MEDIUM", "HIGH", "CRITICAL")]
+        or any(u.risk_score >= 40 for u in forensic.url_findings))
     if s_p is not None and t_p is not None and min(s_p, t_p) >= 0.8 and corroborated:
         floor = 50.0 + 40.0 * (min(s_p, t_p) - 0.8) / 0.2
         if floor > overall:
@@ -185,6 +188,29 @@ def fuse(
                 f"and deterministic indicators corroborate it — score raised to {floor:.0f}."
             )
             overall = floor
+
+    # Authenticated-sender gating: when DMARC passes (the From domain itself
+    # authorised this message) and there is NO strong deterministic evidence
+    # (no failed auth / HIGH header anomaly / lookalike domain / risky URL /
+    # HIGH-severity social engineering), security notices, sign-in links and
+    # newsletters from real organisations must not be called a threat just
+    # because their wording resembles phishing.
+    dmarc_pass = (forensic.authentication.dmarc.result == "PASS")
+    strong_evidence = bool(
+        det_score >= 50
+        or [f for f in forensic.header_findings if f.severity in ("HIGH", "CRITICAL")]
+        or [i for i in forensic.social_engineering_indicators if i.severity in ("HIGH", "CRITICAL")]
+        or any(u.risk_score >= 40 for u in forensic.url_findings)
+        or any(getattr(d, "lookalike_of", None) or getattr(d, "risk_score", 0) >= 40
+               for d in getattr(forensic, "domain_findings", []) or [])
+    )
+    if dmarc_pass and not strong_evidence and overall > 24.0:
+        reasons.append(
+            "Sender is DMARC-authenticated (SPF/DKIM aligned with the From domain) and no strong "
+            "forensic indicator was found; ML wording signal alone is not treated as a threat "
+            f"(score {overall:.0f} capped at 24)."
+        )
+        overall = 24.0
 
     # Evidence gating: learned models alone never declare a THREAT.
     det_evidence = bool(

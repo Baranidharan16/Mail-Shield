@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.models.investigation import AuditLog, Investigation
 from typing import Optional
 from app.models.user import User
 from utils.auth_deps import get_optional_current_user

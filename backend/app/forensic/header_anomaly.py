@@ -37,7 +37,10 @@ def _domain_mismatch(a: Optional[str], b: Optional[str]) -> bool:
     if not a or not b:
         return False
     a, b = a.lower(), b.lower()
-    return a != b and not a.endswith("." + b) and not b.endswith("." + a)
+    if a == b or a.endswith("." + b) or b.endswith("." + a):
+        return False
+    from app.forensic.auth_analyzer import org_domain
+    return org_domain(a) != org_domain(b)
 
 
 def run_header_anomaly_rules(

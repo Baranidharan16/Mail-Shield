@@ -19,12 +19,12 @@ def _get_fernet():
     if _fernet is not None:
         return _fernet
 
-    key_str = os.getenv("FERNET_KEY", "")
+    key_str = os.getenv("FERNET_KEY", "").strip().strip('"').strip("'")
     if not key_str:
         try:
             import dotenv
             dotenv.load_dotenv()
-            key_str = os.getenv("FERNET_KEY", "")
+            key_str = os.getenv("FERNET_KEY", "").strip().strip('"').strip("'")
         except Exception:
             pass
     if key_str:

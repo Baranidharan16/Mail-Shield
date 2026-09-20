@@ -96,6 +96,70 @@ def create_investigation(
     return investigation
 
 
+def _keras_panel_outputs(raw_bytes: bytes):
+    """Raw outputs of the MailShield Keras phishing + NLP models for this email,
+    stored with the investigation so the ML / NLP panels show them later."""
+    out = {}
+    try:
+        from services.email_parser import parse_eml_bytes
+        from services.ml_service import get_ml_service
+        from services.nlp_service import get_nlp_service
+        text = parse_eml_bytes(raw_bytes).model_text or ""
+        ml, nlp = get_ml_service(), get_nlp_service()
+        if ml.is_loaded():
+            out["ml"] = ml.predict(text).model_dump()
+            out["ml"]["model"] = "MailShield Phishing Detector v2 (Keras BiLSTM)"
+        if nlp.is_loaded():
+            out["nlp"] = nlp.predict(text).model_dump()
+            out["nlp"]["model"] = "MailShield NLP v2 (Keras BiLSTM, 6 threat patterns)"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Keras panel outputs unavailable: %s", exc)
+    return out
+
+
+def _keras_text_prediction(raw_bytes: bytes, fallback):
+    """Uses the MailShield Keras phishing model (Keras-Lite runtime) as the
+    text classifier; returns `fallback` (scikit-learn) if it is unavailable."""
+    try:
+        from services.ml_service import get_ml_service
+        from services.email_parser import parse_eml_bytes
+        from app.ml.model_provider import ModelMetadata, ModelPrediction
+
+        svc = get_ml_service()
+        if not svc.is_loaded():
+            return fallback
+        text = parse_eml_bytes(raw_bytes).model_text or ""
+        if not text.strip():
+            return fallback
+        res = svc.predict(text)
+        p_keras = float(res.phishing_probability)
+        # Ensemble with the TF-IDF text model when available: on the MailShield
+        # test corpus the average separates legitimate vs threat mail best
+        # (20/20 correct, 0 false alarms) - see docs/ML_MODELS.md.
+        p_tfidf = (getattr(fallback, "class_probabilities", None) or {}).get("PHISHING")             if getattr(fallback, "available", False) else None
+        p = (p_keras + float(p_tfidf)) / 2.0 if p_tfidf is not None else p_keras
+        return ModelPrediction(
+            available=True,
+            model_metadata=ModelMetadata(
+                model_name="MailShield Keras BiLSTM + TF-IDF ensemble", model_version="v2",
+                training_dataset_version="CEAS_08+Enron+Ling+Nazario+Nigerian_Fraud+SpamAssassin+phishing_email",
+                feature_version="text-vectorization-20000x300", trained_at="2026-09-14",
+                algorithm="TextVectorization > Embedding > BiLSTM > Dense", classes=["LEGITIMATE", "PHISHING"],
+            ),
+            predicted_label="PHISHING" if p >= 0.5 else "LEGITIMATE",
+            class_probabilities={"PHISHING": round(p, 4), "LEGITIMATE": round(1 - p, 4)},
+            confidence=round(max(p, 1 - p), 4),
+            top_features=list(getattr(fallback, "top_features", None) or []),
+            note=(f"Ensemble of MailShield Keras BiLSTM (p={p_keras:.3f}) and TF-IDF text model "
+                  f"(p={p_tfidf:.3f}). " if p_tfidf is not None else
+                  f"MailShield Keras BiLSTM (p={p_keras:.3f}). ")
+                 + "Term highlights come from the TF-IDF model.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Keras text model unavailable, using scikit-learn text model: %s", exc)
+        return fallback
+
+
 def run_analysis(db: Session, investigation_id: str, raw_bytes: bytes) -> None:
     """Runs the full forensic + AI/ML + threat-intel + correlation +
     agent pipeline and persists every result. Progresses through real,
@@ -192,7 +256,7 @@ def run_analysis(db: Session, investigation_id: str, raw_bytes: bytes) -> None:
         fv = build_feature_vector(result)
         text_blob = feature_text_blob(result)
         struct_pred = get_structured_model().predict(fv)
-        text_pred = get_text_model().predict(text_blob)
+        text_pred = _keras_text_prediction(raw_bytes, get_text_model().predict(text_blob))
 
         # =========================================================
         # PHASE 2: THREAT_INTELLIGENCE
@@ -205,6 +269,10 @@ def run_analysis(db: Session, investigation_id: str, raw_bytes: bytes) -> None:
             threat_intel_score=intel_summary.aggregate_score,
             threat_intel_reasons=intel_summary.reasons,
         )
+
+        keras_outputs = _keras_panel_outputs(raw_bytes)
+        if keras_outputs:
+            fusion.risk_breakdown["mailshield_keras_models"] = keras_outputs
 
         db.add(MLPrediction(
             investigation_id=investigation.id,

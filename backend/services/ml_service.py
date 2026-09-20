@@ -47,6 +47,7 @@ class MLService:
 
         self.model = None
         self._is_loaded = False
+        self._backend = "keras"
         self._load_error: Optional[str] = None  # preserved for /health/ml
 
     def _load_metadata(self) -> None:
@@ -76,6 +77,21 @@ class MLService:
         Raises FileNotFoundError if the model file is missing.
         Raises (and logs with full traceback) any Keras/TF loading exception.
         """
+        # Preferred: TensorFlow-free Keras-Lite export of the SAME trained model
+        # (identical predictions, ~40 MB RAM instead of >500 MB for TensorFlow).
+        lite_path = Path(self.model_path).with_suffix(".npz")
+        if lite_path.exists():
+            try:
+                from services.keras_lite import load_lite_model
+                self.model = load_lite_model(str(lite_path))
+                self._backend = "keras-lite"
+                self._is_loaded = True
+                self._load_error = None
+                logger.info("MailShield ML model loaded (Keras-Lite, no TensorFlow): %s", lite_path.name)
+                return
+            except Exception:
+                logger.exception("Keras-Lite ML export could not be loaded; trying full Keras.")
+
         if not Path(self.model_path).exists():
             msg = f"ML model file not found at {self.model_path}"
             logger.error(msg)
@@ -127,13 +143,15 @@ class MLService:
             text = ""
 
         try:
-            import tensorflow as tf
-            # Model expects a 1-D tensor of strings: shape (batch_size,) = (1,)
-            input_tensor = tf.constant([text], dtype=tf.string)
-            raw_pred = self.model.predict(input_tensor, verbose=0)
-
-            # Raw prediction is shape (1, 1) with sigmoid output [0.0 – 1.0]
-            prob = float(raw_pred[0][0])
+            if self._backend == "keras-lite":
+                prob = float(self.model.predict_proba(text)[0])
+            else:
+                import tensorflow as tf
+                # Model expects a 1-D tensor of strings: shape (batch_size,) = (1,)
+                input_tensor = tf.constant([text], dtype=tf.string)
+                raw_pred = self.model.predict(input_tensor, verbose=0)
+                # Raw prediction is shape (1, 1) with sigmoid output [0.0 – 1.0]
+                prob = float(raw_pred[0][0])
             prob = max(0.0, min(1.0, prob))
 
             prediction = "phishing" if prob >= self.threshold else "legitimate"

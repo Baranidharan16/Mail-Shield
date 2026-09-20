@@ -58,35 +58,42 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing MailShield Backend Services...")
     from app.core.config import get_settings as _gs
     _load_models = _gs().LOAD_ML_MODELS
-    if not _load_models:
-        logger.warning("LOAD_ML_MODELS=false — skipping TensorFlow model loading (rule-based analysis only).")
 
-    # Load ML Model (mailshield_ml.keras)
-    try:
-        if not _load_models:
-            raise RuntimeError("model loading disabled")
-        ml_service = get_ml_service()
-        ml_service.load()
-        logger.info("MailShield ML Phishing Detection Model loaded into RAM.")
-    except Exception:
-        # Log the FULL traceback so the exact Keras error is visible in logs.
-        logger.exception(
-            "STARTUP FAILURE: Could not load ML model. "
-            "Email analysis will be unavailable until this is resolved."
+    # MailShield Keras ML + NLP models. They are served by the TensorFlow-free
+    # Keras-Lite runtime (models/*.npz), so they load even on Render's 512 MB
+    # free instance. LOAD_ML_MODELS=false only forbids falling back to full
+    # TensorFlow when an .npz export is missing.
+    from pathlib import Path as _P
+    _models_dir = _P(__file__).resolve().parent / "models"
+    _have_lite = all((_models_dir / n).exists() for n in
+                     ("Mailshield_phishing_model_v2.npz", "MailShield_NLP_v2.npz"))
+    if not (_load_models or _have_lite):
+        logger.info(
+            "LOAD_ML_MODELS=false and no Keras-Lite exports found - "
+            "analysis uses the scikit-learn models + rule engine."
         )
+    else:
+        # Load ML Model (Keras phishing detector)
+        try:
+            ml_service = get_ml_service()
+            ml_service.load()
+            logger.info("MailShield ML Phishing Detection Model loaded into RAM.")
+        except Exception:
+            logger.exception(
+                "Could not load optional Keras ML model - falling back to "
+                "scikit-learn models + rule engine."
+            )
 
-    # Load NLP Model (mailshield_nlp.keras)
-    try:
-        if not _load_models:
-            raise RuntimeError("model loading disabled")
-        nlp_service = get_nlp_service()
-        nlp_service.load()
-        logger.info("MailShield NLP Threat-Pattern Model loaded into RAM.")
-    except Exception:
-        logger.exception(
-            "STARTUP FAILURE: Could not load NLP model. "
-            "Threat-pattern classification will be unavailable until this is resolved."
-        )
+        # Load NLP Model (Keras)
+        try:
+            nlp_service = get_nlp_service()
+            nlp_service.load()
+            logger.info("MailShield NLP Threat-Pattern Model loaded into RAM.")
+        except Exception:
+            logger.exception(
+                "Could not load optional Keras NLP model - falling back to "
+                "scikit-learn models + rule engine."
+            )
 
     # Initialize legacy database if available
     try:

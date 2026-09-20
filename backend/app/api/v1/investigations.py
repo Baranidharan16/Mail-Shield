@@ -165,6 +165,18 @@ def get_investigation(
             }
             from routes.analysis import _nlp_from_indicators
             detail.nlp_detection = _nlp_from_indicators(investigation.indicators).model_dump()
+
+            # Prefer the MailShield Keras models' own outputs stored at analysis time.
+            keras = (mlp.fused_breakdown or {}).get("mailshield_keras_models") or {}
+            if keras.get("ml"):
+                detail.ml_detection.update({
+                    "prediction": keras["ml"]["prediction"],
+                    "phishing_probability": keras["ml"]["phishing_probability"],
+                    "confidence": keras["ml"]["confidence"],
+                    "model_version": keras["ml"].get("model", "MailShield ML v2"),
+                })
+            if keras.get("nlp"):
+                detail.nlp_detection = {k: v for k, v in keras["nlp"].items() if k != "model"}
     except Exception as e:
         logger.warning("Could not attach ML/NLP detail: %s", e)
 

@@ -12,3 +12,5 @@ frontend/dist
 scratch
 sih-email-forensics
 .git
+# TensorFlow is not installed in the image; the models run from models/*.npz (Keras-Lite)
+backend/models/*.keras

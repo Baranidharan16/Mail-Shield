@@ -58,6 +58,28 @@ def _normalize(result: Optional[str]) -> str:
     return r if r in VALID_RESULTS else "UNKNOWN"
 
 
+_TLDX_ORG = None
+
+
+def org_domain(domain):
+    """Registrable (organizational) domain: accounts.google.com -> google.com."""
+    global _TLDX_ORG
+    if not domain:
+        return ""
+    domain = domain.lower().strip(".")
+    try:
+        if _TLDX_ORG is None:
+            import tldextract
+            _TLDX_ORG = tldextract.TLDExtract(suffix_list_urls=())
+        ext = _TLDX_ORG(domain)
+        if ext.domain and ext.suffix:
+            return f"{ext.domain}.{ext.suffix}"
+    except Exception:
+        pass
+    parts = domain.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else domain
+
+
 def _domain_suffix_match(a: Optional[str], b: Optional[str]) -> Optional[bool]:
     """Loose organizational-domain alignment: exact match or one is a subdomain of the other."""
     if not a or not b:
@@ -65,7 +87,11 @@ def _domain_suffix_match(a: Optional[str], b: Optional[str]) -> Optional[bool]:
     a, b = a.lower().strip("."), b.lower().strip(".")
     if a == b:
         return True
-    return a.endswith("." + b) or b.endswith("." + a)
+    if a.endswith("." + b) or b.endswith("." + a):
+        return True
+    # Relaxed alignment: same organizational domain (e.g. accounts.google.com
+    # vs gaia.bounces.google.com) is aligned, exactly as DMARC relaxed mode.
+    return bool(org_domain(a)) and org_domain(a) == org_domain(b)
 
 
 def analyze_authentication(

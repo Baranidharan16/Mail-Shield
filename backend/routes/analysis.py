@@ -96,6 +96,20 @@ async def _process_analysis(
     ml_result = MLAnalysisResult(prediction=label, phishing_probability=round(p, 4),
                                  confidence=round(max(p, 1 - p), 4))
     nlp_result = _nlp_from_indicators(inv.indicators)
+
+    # MailShield Keras models (trained on 157k emails / 6 threat categories).
+    model_text = getattr(parsed, "model_text", None) or ""
+    ml_svc, nlp_svc = get_ml_service(), get_nlp_service()
+    if ml_svc.is_loaded():
+        try:
+            ml_result = ml_svc.predict(model_text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Keras ML panel fell back to structured model: %s", exc)
+    if nlp_svc.is_loaded():
+        try:
+            nlp_result = nlp_svc.predict(model_text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Keras NLP panel fell back to rule indicators: %s", exc)
     forensics_result = analyze_forensics(parsed)
     risk_result = RiskResult(
         score=int(round(inv.risk_score or 0)),

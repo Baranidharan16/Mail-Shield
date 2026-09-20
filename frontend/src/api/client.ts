@@ -745,6 +745,7 @@ export interface GmailStatusResponse {
   email: string;
   messages_total: number;
   quarantined_count: number;
+  gmail_error?: string | null;
 }
 
 export async function getGmailStatus(): Promise<GmailStatusResponse> {
@@ -775,18 +776,51 @@ export async function analyzeGmailMessage(messageId: string): Promise<{
   return data;
 }
 
+/**
+ * Quarantine flow shared by every Quarantine button:
+ *  1. Move the email to the Gmail "Quarantine" label.
+ *  2. If the account has no "Quarantine" label, the backend moves nothing and
+ *     answers 409 QUARANTINE_LABEL_MISSING. We then ask the user for permission;
+ *     only if they agree is the email moved to Spam instead.
+ */
+async function quarantineWithSpamFallback(url: string, destination?: string): Promise<any> {
+  try {
+    const { data } = await apiClient.post(url, null, {
+      params: destination ? { destination } : undefined,
+    });
+    return data;
+  } catch (err: any) {
+    const detail = err?.response?.data?.detail;
+    if (err?.response?.status === 409 && detail?.code === "QUARANTINE_LABEL_MISSING") {
+      const ok = window.confirm(
+        `${detail.message || "This Gmail account has no 'Quarantine' label."}\n\n` +
+          "OK = move this email to Spam\nCancel = leave it in the Inbox",
+      );
+      if (ok) {
+        const { data } = await apiClient.post(url, null, { params: { destination: "spam" } });
+        return data;
+      }
+      // Normalise to the string-detail shape the Quarantine buttons already display.
+      const cancelled: any = new Error("cancelled");
+      cancelled.response = {
+        status: 409,
+        data: { detail: "No 'Quarantine' label in this Gmail account; you chose not to move it to Spam. The email is still in the Inbox." },
+      };
+      throw cancelled;
+    }
+    if (detail && typeof detail === "object") {
+      err.response.data.detail = detail.message || JSON.stringify(detail);
+    }
+    throw err;
+  }
+}
+
 export async function quarantineGmailMessage(messageId: string, destination?: string): Promise<any> {
-  const { data } = await apiClient.post(`/gmail/quarantine/${messageId}`, null, {
-    params: destination ? { destination } : undefined,
-  });
-  return data;
+  return quarantineWithSpamFallback(`/gmail/quarantine/${messageId}`, destination);
 }
 
 export async function quarantineInvestigation(investigationId: string, destination?: string): Promise<any> {
-  const { data } = await apiClient.post(`/investigations/${investigationId}/quarantine`, null, {
-    params: destination ? { destination } : undefined,
-  });
-  return data;
+  return quarantineWithSpamFallback(`/investigations/${investigationId}/quarantine`, destination);
 }
 
 export async function releaseGmailMessage(messageId: string): Promise<any> {

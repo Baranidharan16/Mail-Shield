@@ -53,17 +53,17 @@ SCOPES = [
 
 
 def _get_client_id() -> str:
-    return os.getenv("GOOGLE_CLIENT_ID", "")
+    return os.getenv("GOOGLE_CLIENT_ID", "").strip()
 
 
 def _get_client_secret() -> str:
-    return os.getenv("GOOGLE_CLIENT_SECRET", "")
+    return os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 
 
 def _get_redirect_uri() -> str:
     return os.getenv(
         "GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback"
-    )
+    ).strip()
 
 
 def build_authorization_url(state: str) -> str:
@@ -118,6 +118,30 @@ async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
         return resp.json()
 
 
+def explain_google_error(resp: "httpx.Response") -> str:
+    """Turns a Gmail API error response into a short, actionable message."""
+    try:
+        err = resp.json().get("error", {})
+        msg = err.get("message", "") if isinstance(err, dict) else str(err)
+        reasons = [d.get("reason", "") for d in (err.get("errors") or [])] if isinstance(err, dict) else []
+        for d in (err.get("details") or []) if isinstance(err, dict) else []:
+            if d.get("reason"):
+                reasons.append(d["reason"])
+    except Exception:
+        msg, reasons = resp.text[:200], []
+    joined = " ".join(reasons) + " " + msg
+    if "accessNotConfigured" in joined or "SERVICE_DISABLED" in joined or "has not been used" in joined:
+        return ("Gmail API is not enabled in your Google Cloud project. Enable it at "
+                "console.cloud.google.com > APIs & Services > Library > Gmail API, "
+                "wait a few minutes, then click Refresh.")
+    if resp.status_code == 403 and ("insufficient" in joined.lower() or "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in joined):
+        return ("Gmail read permission was not granted. Click Disconnect, then Connect Gmail "
+                "again and tick every Gmail checkbox on Google's consent screen.")
+    if resp.status_code == 401:
+        return "Gmail session expired or was revoked. Click Disconnect and connect Gmail again."
+    return f"Gmail API error {resp.status_code}: {msg or resp.text[:200]}"
+
+
 class UserGmailSession:
     """
     Lightweight per-request Gmail session for one authenticated user.
@@ -147,7 +171,7 @@ class UserGmailSession:
             logger.warning("Gmail profile fetch failed (%s): %s", resp.status_code, resp.text)
             return {"emailAddress": self.user_email, "messagesTotal": 0, "is_connected": True}
 
-    async def get_or_create_label(self, label_name: str = "Quarantine") -> str:
+    async def get_or_create_label(self, label_name: str = "Quarantine", create: bool = True) -> Optional[str]:
         """
         Dynamically discovers the Gmail user label ID by name (case-insensitive)
         using users.labels.list.
@@ -181,6 +205,9 @@ class UserGmailSession:
                     logger.info("Found existing dynamic Gmail label '%s' (ID: %s)", label_name, l["id"])
                     self._quarantine_label_id = l["id"]
                     return l["id"]
+
+            if not create:
+                return None
 
             # Label does not exist -> create it dynamically via Gmail API
             logger.info("Gmail label '%s' does not exist. Creating dynamically via Gmail API...", label_name)
@@ -233,7 +260,10 @@ class UserGmailSession:
             )
             if resp.status_code != 200:
                 logger.error("Gmail list messages failed (%s): %s", resp.status_code, resp.text)
-                return []
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=explain_google_error(resp),
+                )
 
             raw_msgs = resp.json().get("messages", [])
             detailed: List[Dict[str, Any]] = []
@@ -309,7 +339,8 @@ class UserGmailSession:
         """
         Quarantines a Gmail message:
         1. Resolves target label:
-           - For baranidharanboopathy66@gmail.com (or destination='quarantine'):
+           - Default (every account, or destination='quarantine'): existing 'Quarantine' label;
+             if the account has none -> HTTP 409 QUARANTINE_LABEL_MISSING (nothing moved).
              Finds or creates the user label 'Quarantine' dynamically, adds Quarantine label ID, removes INBOX.
            - For destination='spam':
              Adds 'SPAM' label ID, removes INBOX.
@@ -317,18 +348,11 @@ class UserGmailSession:
         3. Executes users.messages.modify with addLabelIds and removeLabelIds.
         4. Verifies modification response from Gmail API before confirming success.
         """
+        # Default for every account: the Gmail user label "Quarantine".
+        # Spam only when the user explicitly approved it (destination=spam).
         target_dest = (destination or "").strip().lower()
-        if not target_dest:
-            if not self.user_email:
-                try:
-                    prof = await self.fetch_profile()
-                    self.user_email = prof.get("emailAddress", "")
-                except Exception:
-                    pass
-            if "baranidharanboopathy66" in (self.user_email or "").lower():
-                target_dest = "quarantine"
-            else:
-                target_dest = "spam"
+        if target_dest != "spam":
+            target_dest = "quarantine"
 
         target_label_id: str
         target_label_name: str
@@ -338,7 +362,18 @@ class UserGmailSession:
             target_label_id = "SPAM"
         else:
             target_label_name = "Quarantine"
-            target_label_id = await self.get_or_create_label("Quarantine")
+            label_id = await self.get_or_create_label("Quarantine", create=False)
+            if not label_id:
+                # Nothing is moved. The user must explicitly approve Spam instead.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "QUARANTINE_LABEL_MISSING",
+                        "message": ("This Gmail account has no 'Quarantine' label. "
+                                    "Move the email to Spam instead?"),
+                    },
+                )
+            target_label_id = label_id
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             # 1. Verify message exists and inspect current labels
@@ -442,7 +477,7 @@ class UserGmailSession:
 
     async def release_message(self, message_id: str) -> Dict[str, Any]:
         """Releases quarantined email back to the standard INBOX."""
-        quarantine_label_id = await self.get_or_create_label("Quarantine")
+        quarantine_label_id = await self.get_or_create_label("Quarantine", create=False)
 
         # Get current message labels so we only request removal of labels that actually exist
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -572,6 +607,16 @@ async def save_user_gmail_tokens(
                 )
                 if resp.status_code == 200:
                     google_email = resp.json().get("emailAddress", "")
+                else:
+                    logger.warning(
+                        "Gmail profile lookup at connect failed: %s", explain_google_error(resp)
+                    )
+                    ui = await client.get(
+                        "https://www.googleapis.com/oauth2/v2/userinfo",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    if ui.status_code == 200:
+                        google_email = ui.json().get("email", "")
         except Exception as e:
             logger.warning("Could not fetch Google profile email: %s", e)
 

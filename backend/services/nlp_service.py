@@ -81,6 +81,7 @@ class NLPService:
 
         self.model = None
         self._is_loaded = False
+        self._backend = "keras"
         self._load_error: Optional[str] = None  # preserved for /health/ml
 
     def _load_metadata(self) -> None:
@@ -106,6 +107,21 @@ class NLPService:
         Raises FileNotFoundError if the model file is missing.
         Raises (and logs with full traceback) any Keras/TF loading exception.
         """
+        # Preferred: TensorFlow-free Keras-Lite export of the SAME trained model
+        # (identical predictions, ~40 MB RAM instead of >500 MB for TensorFlow).
+        lite_path = Path(self.model_path).with_suffix(".npz")
+        if lite_path.exists():
+            try:
+                from services.keras_lite import load_lite_model
+                self.model = load_lite_model(str(lite_path))
+                self._backend = "keras-lite"
+                self._is_loaded = True
+                self._load_error = None
+                logger.info("MailShield NLP model loaded (Keras-Lite, no TensorFlow): %s", lite_path.name)
+                return
+            except Exception:
+                logger.exception("Keras-Lite NLP export could not be loaded; trying full Keras.")
+
         if not Path(self.model_path).exists():
             msg = f"NLP model file not found at {self.model_path}"
             logger.error(msg)
@@ -154,13 +170,14 @@ class NLPService:
         if not text or not text.strip():
             text = "Empty email body"
 
-        import tensorflow as tf  # lazy import
-        # Model expects a 1-D tensor of strings: shape (batch_size,) = (1,)
-        input_tensor = tf.constant([text], dtype=tf.string)
-        raw_pred = self.model.predict(input_tensor, verbose=0)
-
-        # Raw prediction is shape (1, 6) with sigmoid values [0.0 – 1.0]
-        preds = raw_pred[0]
+        if self._backend == "keras-lite":
+            preds = self.model.predict_proba(text)
+        else:
+            import tensorflow as tf  # lazy import
+            # Model expects a 1-D tensor of strings: shape (batch_size,) = (1,)
+            input_tensor = tf.constant([text], dtype=tf.string)
+            # Raw prediction is shape (1, 6) with sigmoid values [0.0 – 1.0]
+            preds = self.model.predict(input_tensor, verbose=0)[0]
 
         def _clip(v: float) -> float:
             return round(max(0.0, min(1.0, float(v))), 4)
