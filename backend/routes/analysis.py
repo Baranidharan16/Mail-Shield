@@ -112,12 +112,16 @@ async def _process_analysis(
     label = "phishing" if (mlp and "PHISHING" in (mlp.structured_label, mlp.text_label)) else "legitimate"
     ml_result = MLAnalysisResult(prediction=label, phishing_probability=round(p, 4),
                                  confidence=round(max(p, 1 - p), 4))
-    # Rule-based indicator fallback (weakest priority)
-    nlp_result = _nlp_from_indicators(inv.indicators)
+    # ── NLP inference — always produces scores for every email ─────────────────
+    # model_text is the cleaned, tokenisable email body used by all ML/NLP models.
+    model_text = getattr(parsed, "model_text", None) or ""
 
-    # ── Second-priority: use Keras NLP outputs already stored in the investigation
-    # by _keras_panel_outputs() during analysis (so we always surface the trained
-    # model scores even if the NLP service is not in-memory at response time).
+    # Step 1 — Keyword scorer: ALWAYS runs, zero dependencies, guaranteed non-zero
+    #          scores for any email that contains recognisable threat language.
+    nlp_result = keyword_nlp_score(model_text)
+
+    # Step 2 — Stored Keras outputs: overrides keyword scores if the numpy NLP
+    #          model ran successfully during the analysis pipeline and saved results.
     stored_keras = (mlp.fused_breakdown or {}).get("mailshield_keras_models", {}) if mlp else {}
     stored_nlp = stored_keras.get("nlp")
     if stored_nlp and isinstance(stored_nlp, dict):
@@ -134,28 +138,20 @@ async def _process_analysis(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not deserialize stored NLP keras outputs: %s", exc)
 
-    # ── First-priority: live inference from the in-memory NLP model (most accurate)
-    model_text = getattr(parsed, "model_text", None) or ""
+    # Step 3 — Live numpy model: highest accuracy, overrides everything if loaded.
     ml_svc, nlp_svc = get_ml_service(), get_nlp_service()
     if ml_svc.is_loaded():
         try:
             ml_result = ml_svc.predict(model_text)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Keras ML panel fell back to structured model: %s", exc)
-    # Keyword scorer — guaranteed tier-2 fallback, zero dependencies, always runs
-    # when the stored keras outputs are also unavailable (model never loaded on Render).
-    if all(v == 0.0 for v in [
-        nlp_result.urgency, nlp_result.credential_request, nlp_result.financial_manipulation,
-        nlp_result.impersonation, nlp_result.threat_language, nlp_result.suspicious_action,
-    ]):
-        nlp_result = keyword_nlp_score(model_text)
-        logger.debug("NLP panel: using keyword scorer fallback (model_text len=%d)", len(model_text))
-    # Live NLP model overrides everything if available
     if nlp_svc.is_loaded():
         try:
             nlp_result = nlp_svc.predict(model_text)
+            logger.debug("NLP panel: live numpy model used for investigation %s", inv.id)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Keras NLP panel fell back to stored/rule indicators: %s", exc)
+            logger.warning("Keras NLP model predict failed, keeping keyword/stored scores: %s", exc)
+
     forensics_result = analyze_forensics(parsed)
     risk_result = RiskResult(
         score=int(round(inv.risk_score or 0)),
