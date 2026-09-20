@@ -1135,16 +1135,48 @@ def get_investigation_origin_trace(
             "timestamp_parsed": h.timestamp_parsed.isoformat() if h.timestamp_parsed else None,
         })
 
-    # Collect GeoIP lookup for public IPs
-    provider = get_geoip_provider()
-    geo_results = []
-    for ip_rec in (investigation.ip_addresses or []):
-        geo = provider.lookup_geo(ip_rec.ip_address)
-        geo_results.append({
-            "ip_address": ip_rec.ip_address,
-            "geo": geo,
-        })
+    from concurrent.futures import ThreadPoolExecutor
+    from app.forensic.sender_trace import build_sender_infrastructure, dnsbl_check, extract_client_ips
 
-    trace_result = analyze_origin_trace(hops_data, geo_results)
+    # Client-submission IPs (X-Originating-IP etc.) from the stored raw headers
+    header_pairs = [(h.name, h.value) for h in sorted(investigation.headers or [], key=lambda x: x.order_index)]
+    client_ips = extract_client_ips(header_pairs)
+
+    # Geolocate EVERY public IP in the trace (hops + client IPs + recorded IPs), in parallel
+    provider = get_geoip_provider()
+    all_ips = []
+    for ip in ([h["ip_address"] for h in hops_data] + [c["ip"] for c in client_ips]
+               + [r.ip_address for r in (investigation.ip_addresses or [])]):
+        if ip and ip not in all_ips:
+            all_ips.append(ip)
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        geos = list(ex.map(provider.lookup_geo, all_ips))
+    geo_results = [{"ip_address": ip, "geo": g} for ip, g in zip(all_ips, geos)]
+
+    trace_result = analyze_origin_trace(hops_data, geo_results, client_ips=client_ips)
+
+    # Real-time DNS blocklist reputation for public trace IPs
+    public_nodes = [n for n in trace_result.relay_path if n.ip_address and not n.is_private]
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        reps = list(ex.map(lambda n: dnsbl_check(n.ip_address), public_nodes))
+    for n, rep in zip(public_nodes, reps):
+        n.reputation = rep
+        if rep.get("listed_on"):
+            n.flags.append("DNSBL listed: " + ", ".join(rep["listed_on"]))
+            trace_result.anomalies.append({
+                "type": "BLOCKLISTED_IP", "severity": "HIGH", "hop_index": n.hop_index,
+                "description": f"{n.ip_address} is listed on {', '.join(rep['listed_on'])} (real-time DNSBL query).",
+            })
+
+    # Claimed-sender domain infrastructure (live DNS A/MX + geolocation)
+    meta = investigation.email_metadata
+    auth = investigation.authentication_result
+    try:
+        trace_result.sender_infrastructure = build_sender_infrastructure(
+            getattr(meta, "sender_domain", None), getattr(meta, "return_path_domain", None),
+            getattr(auth, "dkim_domain", None), provider.lookup_geo,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Sender infrastructure resolution failed: %s", exc)
     return asdict(trace_result)
 

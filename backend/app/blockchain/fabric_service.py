@@ -25,7 +25,14 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.investigation import BlockchainBlock
-from app.blockchain.ledger import _hash_block, verify_chain
+from app.blockchain.ledger import anchor_evidence, block_is_valid, canonical_report_hash, verify_chain
+
+
+def _stored_report_hash(db: Session, investigation_id: str) -> Optional[str]:
+    from app.models.investigation import Investigation
+    inv = db.get(Investigation, investigation_id)
+    rep = inv.report.report_json if inv is not None and getattr(inv, "report", None) else None
+    return canonical_report_hash(rep) if rep is not None else None
 
 logger = logging.getLogger("mailshield.blockchain.fabric")
 
@@ -63,35 +70,19 @@ class FabricEvidenceService:
         Registers an immutable evidence proof into the ledger.
         Stores cryptographic integrity record and returns the Transaction ID.
         """
-        timestamp = datetime.now(timezone.utc).isoformat()
         if not report_hash:
-            report_hash = hashlib.sha256(f"{evidence_id}:{case_id}:{timestamp}".encode("utf-8")).hexdigest()
+            # Anchor the REAL stored forensic report hash so later integrity
+            # checks compare like with like (a random value here made every
+            # manually re-registered case report as "MODIFIED").
+            report_hash = _stored_report_hash(db, evidence_id) or hashlib.sha256(
+                f"no-report:{evidence_id}:{case_id}".encode("utf-8")).hexdigest()
 
-        # Retrieve last block to construct chain
-        last = db.query(BlockchainBlock).order_by(BlockchainBlock.block_index.desc()).first()
-        block_index = (last.block_index + 1) if last else 0
-        previous_hash = last.block_hash if last else "0" * 64
-
-        # Compute SHA-256 block hash incorporating previous hash
-        block_hash = _hash_block(
-            block_index, timestamp, case_id, evidence_hash, report_hash, previous_hash
-        )
+        block = anchor_evidence(db, case_id, evidence_hash, report_hash)
+        block_index, block_hash = block.block_index, block.block_hash
+        previous_hash, timestamp = block.previous_hash, block.timestamp
 
         # Generate deterministic transaction ID
-        tx_id = f"tx_fabric_{block_hash[:24]}_{uuid.uuid4().hex[:8]}"
-
-        block = BlockchainBlock(
-            block_index=block_index,
-            timestamp=timestamp,
-            case_id=case_id,
-            evidence_hash=evidence_hash,
-            report_hash=report_hash,
-            previous_hash=previous_hash,
-            block_hash=block_hash,
-        )
-        db.add(block)
-        db.commit()
-        db.refresh(block)
+        tx_id = f"{'tx_fabric' if self.is_connected else 'tx_local'}_{block_hash[:24]}_{uuid.uuid4().hex[:8]}"
 
         logger.info(
             "Registered evidence on Fabric/Ledger: evidence_id=%s, case_id=%s, tx_id=%s, block=%d",
@@ -110,11 +101,11 @@ class FabricEvidenceService:
             "block_index": block_index,
             "block_hash": block_hash,
             "previous_hash": previous_hash,
-            "network": self.network,
+            "network": self.network if self.is_connected else "local-sha256-hash-chain",
             "channel": self.channel,
             "chaincode": self.chaincode,
             "registered_at": timestamp,
-            "integrity_status": "VERIFIED",
+            "integrity_status": "VERIFIED" if block_is_valid(block) else "INVALID",
         }
 
     def get_evidence(self, db: Session, evidence_id: str) -> Optional[Dict[str, Any]]:
@@ -140,7 +131,7 @@ class FabricEvidenceService:
             "block_hash": block.block_hash,
             "previous_hash": block.previous_hash,
             "timestamp": block.timestamp,
-            "integrity_status": "VERIFIED",
+            "integrity_status": "VERIFIED" if block_is_valid(block) else "INVALID",
         }
 
     def verify_evidence(

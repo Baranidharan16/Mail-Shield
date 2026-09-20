@@ -32,6 +32,8 @@ class ObservableNode:
     infrastructure_type: str  # CLOUD_VPS / VPN_PROXY / TOR / MAIL_HOSTING / RESIDENTIAL / UNKNOWN
     geo_data: Optional[Dict[str, Any]] = None
     flags: List[str] = field(default_factory=list)
+    source: str = "received_header"  # received_header / client_ip_header
+    reputation: Optional[Dict[str, Any]] = None  # real-time DNSBL results
 
 
 @dataclass
@@ -48,6 +50,8 @@ class OriginTraceResult:
         "Probable infrastructure geolocation — reflects observed mail relay infrastructure, "
         "NOT the physical location of the sender or attacker."
     )
+    client_origin_detected: bool = False
+    sender_infrastructure: List[Dict[str, Any]] = field(default_factory=list)
 
 
 # Common cloud and hosting provider patterns
@@ -58,14 +62,23 @@ _CLOUD_KEYWORDS = [
 ]
 
 _VPN_PROXY_KEYWORDS = [
-    "vpn", "proxy", "tor-exit", "nordvpn", "expressvpn", "mullvad", "surfshark",
-    "privateinternetaccess", "exit-node", "relay",
+    "vpn", "proxy", "tor-exit", "torexit", "nordvpn", "expressvpn", "mullvad", "surfshark",
+    "privateinternetaccess", "exit-node", "anonymizer",
+]
+
+# Large mail platforms: their relays are the provider's infrastructure, not a
+# VPS rented by the sender - labelled separately so analysts are not misled.
+_MAIL_PROVIDER_KEYWORDS = [
+    "google.com", "googlemail", "gmail", "outlook.com", "protection.outlook", "hotmail",
+    "yahoo", "yahoodns", "amazonses", "sendgrid", "mailgun", "sparkpost", "mailchimp", "mcsv.net",
+    "mandrillapp", "zoho", "icloud.com", "me.com", "protonmail", "pphosted", "mimecast",
 ]
 
 
 def analyze_origin_trace(
     received_hops: List[Dict[str, Any]],
     geo_results: Optional[List[Dict[str, Any]]] = None,
+    client_ips: Optional[List[Dict[str, Any]]] = None,
 ) -> OriginTraceResult:
     """
     Parse chronological hops (hop_index 0 = earliest received header) and
@@ -82,6 +95,22 @@ def analyze_origin_trace(
     anomalies: List[Dict[str, Any]] = []
 
     prev_dt: Optional[datetime] = None
+
+    # Client-submission IPs (X-Originating-IP & co.) precede every Received hop:
+    # they are the device that handed the message to the first mail server.
+    client_nodes: List[ObservableNode] = []
+    for i, c in enumerate(client_ips or []):
+        ip = str(c.get("ip") or "")
+        g_data = geo_by_ip.get(ip)
+        client_nodes.append(ObservableNode(
+            hop_index=-(len(client_ips) - i), ip_address=ip,
+            from_host=f"{c.get('header')}", by_host="submission server",
+            protocol="CLIENT-SUBMISSION", timestamp_raw="", timestamp_parsed=None,
+            is_private=not c.get("is_public", False), is_earliest_reliable=False,
+            infrastructure_type=_classify_infrastructure("", "", ip, g_data) if g_data else "CLIENT_DEVICE",
+            geo_data=g_data, flags=[str(c.get("description") or "Client IP header")],
+            source="client_ip_header",
+        ))
 
     for hop in received_hops:
         hop_idx = hop.get("hop_index", 0)
@@ -143,6 +172,8 @@ def analyze_origin_trace(
         )
         parsed_nodes.append(node)
 
+    parsed_nodes = client_nodes + parsed_nodes
+
     # Detect earliest reliable observable public sending node
     earliest_node: Optional[ObservableNode] = None
     for n in parsed_nodes:
@@ -173,11 +204,17 @@ def analyze_origin_trace(
         else:
             confidence -= 0.10 * len(anomalies)
 
+        if earliest_node.source == "client_ip_header" and not earliest_node.is_private:
+            confidence += 0.10  # submission server stamped the client IP itself
+
     confidence = round(max(0.1, min(0.98, confidence)), 2)
 
     infra_verdict = earliest_node.infrastructure_type if earliest_node else "UNKNOWN"
+    what = ("Sender client IP (from " + earliest_node.from_host + ")"
+            if earliest_node and earliest_node.source == "client_ip_header"
+            else "Earliest observable sending infrastructure")
     summary = (
-        f"Earliest observable sending infrastructure is {infra_verdict} at "
+        f"{what} is {infra_verdict} at "
         f"{earliest_node.ip_address if earliest_node else 'N/A'} "
         f"with {int(confidence * 100)}% infrastructure confidence."
     )
@@ -191,6 +228,7 @@ def analyze_origin_trace(
         confidence_score=confidence,
         infrastructure_type=infra_verdict,
         summary_verdict=summary,
+        client_origin_detected=any(not n.is_private for n in client_nodes),
     )
 
 
@@ -207,9 +245,18 @@ def _classify_infrastructure(
         asn = str(geo_data.get("asn") or "").lower()
         combined_text += f" {isp} {org} {asn}"
 
+    if geo_data and geo_data.get("proxy") is True:
+        return "VPN_PROXY"
+
     for kw in _VPN_PROXY_KEYWORDS:
         if kw in combined_text:
             return "VPN_PROXY"
+
+    if geo_data and geo_data.get("network_category") == "KNOWN_MAIL_OR_CLOUD_PLATFORM":
+        return "MAIL_PROVIDER"
+    for kw in _MAIL_PROVIDER_KEYWORDS:
+        if kw in combined_text:
+            return "MAIL_PROVIDER"
 
     for kw in _CLOUD_KEYWORDS:
         if kw in combined_text:

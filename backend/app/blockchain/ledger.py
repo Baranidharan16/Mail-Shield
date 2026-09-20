@@ -18,6 +18,8 @@ of the Phase 3 brief).
 from __future__ import annotations
 import hashlib
 import json
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -33,22 +35,43 @@ def _hash_block(index: int, timestamp: str, case_id: str, evidence_hash: str, re
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def anchor_evidence(db: Session, case_id: str, evidence_hash: str, report_hash: str) -> BlockchainBlock:
-    last = db.query(BlockchainBlock).order_by(BlockchainBlock.block_index.desc()).first()
-    index = (last.block_index + 1) if last else 0
-    previous_hash = last.block_hash if last else "0" * 64
-    timestamp = datetime.now(timezone.utc).isoformat()
-    block_hash = _hash_block(index, timestamp, case_id, evidence_hash, report_hash, previous_hash)
+_APPEND_LOCK = threading.Lock()
 
-    block = BlockchainBlock(
-        block_index=index, timestamp=timestamp, case_id=case_id,
-        evidence_hash=evidence_hash, report_hash=report_hash,
-        previous_hash=previous_hash, block_hash=block_hash,
-    )
-    db.add(block)
-    db.commit()
-    db.refresh(block)
-    return block
+
+def anchor_evidence(db: Session, case_id: str, evidence_hash: str, report_hash: str) -> BlockchainBlock:
+    """Appends one block. Appends are serialized in-process (the Gmail monitor
+    thread and API uploads can finish at the same moment) and retried on a
+    unique-constraint race with another worker, so the chain never forks."""
+    from sqlalchemy.exc import IntegrityError
+
+    last_error = None
+    for attempt in range(5):
+        with _APPEND_LOCK:
+            last = db.query(BlockchainBlock).order_by(BlockchainBlock.block_index.desc()).first()
+            index = (last.block_index + 1) if last else 0
+            previous_hash = last.block_hash if last else "0" * 64
+            timestamp = datetime.now(timezone.utc).isoformat()
+            block_hash = _hash_block(index, timestamp, case_id, evidence_hash, report_hash, previous_hash)
+            block = BlockchainBlock(
+                block_index=index, timestamp=timestamp, case_id=case_id,
+                evidence_hash=evidence_hash, report_hash=report_hash,
+                previous_hash=previous_hash, block_hash=block_hash,
+            )
+            try:
+                db.add(block)
+                db.commit()
+                db.refresh(block)
+                return block
+            except IntegrityError as exc:  # another process appended the same index
+                db.rollback()
+                last_error = exc
+        time.sleep(0.05 * (attempt + 1))
+    raise RuntimeError(f"Could not append ledger block after retries: {last_error}")
+
+
+def block_is_valid(b: BlockchainBlock) -> bool:
+    return _hash_block(b.block_index, b.timestamp, b.case_id, b.evidence_hash,
+                       b.report_hash, b.previous_hash) == b.block_hash
 
 
 def verify_chain(db: Session) -> dict:

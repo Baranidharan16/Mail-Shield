@@ -78,6 +78,13 @@ def _label_to_score(pred: ModelPrediction) -> Optional[float]:
     return float(_LABEL_RISK.get(pred.predicted_label, 50))
 
 
+def _scale_into(score: float, ceiling: float) -> float:
+    """Proportional soft ceiling: maps [0, 100] onto [0, ceiling] linearly
+    instead of clamping, so different emails keep different, ordered scores
+    (no fixed 24/49 plateaus)."""
+    return max(0.0, min(100.0, score)) * ceiling / 100.0
+
+
 def fuse(
     forensic: ForensicAnalysisResult,
     structured_pred: ModelPrediction,
@@ -204,13 +211,16 @@ def fuse(
         or any(getattr(d, "lookalike_of", None) or getattr(d, "risk_score", 0) >= 40
                for d in getattr(forensic, "domain_findings", []) or [])
     )
-    if dmarc_pass and not strong_evidence and overall > 24.0:
+    damped_by_auth = False
+    if dmarc_pass and not strong_evidence and overall >= 1.0:
+        damped = round(_scale_into(overall, 24.0), 1)
+        damped_by_auth = True
         reasons.append(
             "Sender is DMARC-authenticated (SPF/DKIM aligned with the From domain) and no strong "
             "forensic indicator was found; ML wording signal alone is not treated as a threat "
-            f"(score {overall:.0f} capped at 24)."
+            f"(score {overall:.0f} scaled into the LOW band -> {damped:.0f})."
         )
-        overall = 24.0
+        overall = damped
 
     # Evidence gating: learned models alone never declare a THREAT.
     det_evidence = bool(
@@ -219,17 +229,18 @@ def fuse(
         or [i for i in forensic.social_engineering_indicators if i.indicator_type != "spam_bulk"]
         or any(u.risk_score >= 40 for u in forensic.url_findings)
     )
-    if not det_evidence:
+    if not det_evidence and not damped_by_auth:
         auth_ok = (forensic.authentication.dmarc.result == "PASS")
         bulk = bool(forensic.parsed_email.headers_index.get("list-unsubscribe"))
         cap = 24.0 if (auth_ok and (bulk or not (t_p is not None and t_p >= 0.5))) else 49.0
-        if overall > cap:
+        if overall > 0:
+            damped = round(_scale_into(overall, cap), 1)
             reasons.append(
                 "No deterministic forensic indicator corroborates the ML signal"
                 + (" and the sender is DMARC-authenticated" + (" bulk/list mail" if bulk else "") if cap < 25 else "")
-                + f"; score capped at {cap:.0f} (models alone cannot declare a threat)."
+                + f"; score {overall:.0f} scaled below {cap:.0f} -> {damped:.0f} (models alone cannot declare a threat)."
             )
-            overall = cap
+            overall = damped
 
     overall = round(min(100.0, max(0.0, overall)), 1)
 

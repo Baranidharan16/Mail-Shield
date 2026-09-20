@@ -42,10 +42,7 @@ class ReceivedHop:
 
 def _extract_ip(segment: str) -> Optional[str]:
     """Pull the first valid IPv4/IPv6 literal out of a `from` clause, typically inside []."""
-    bracket_match = re.search(r"\[([0-9a-fA-F:.]+)\]", segment)
-    candidates = []
-    if bracket_match:
-        candidates.append(bracket_match.group(1))
+    candidates = [m for m in re.findall(r"\[(?:IPv6:)?([0-9a-fA-F:.]+)\]", segment, re.IGNORECASE)]
     candidates += _IP_RE.findall(segment)
     for c in candidates:
         try:

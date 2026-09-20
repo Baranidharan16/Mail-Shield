@@ -506,20 +506,44 @@ export interface ObservableNode {
   is_private: boolean;
   is_earliest_reliable: boolean;
   infrastructure_type: string;
-  geo_data?: {
-    country?: string;
-    city?: string;
-    region?: string;
-    isp?: string;
-    org?: string;
-    asn?: string;
-    lat?: number;
-    lon?: number;
-    timezone?: string;
-    hosting?: boolean;
-    proxy?: boolean;
-  } | null;
+  geo_data?: GeoData | null;
   flags: string[];
+  source?: "received_header" | "client_ip_header" | string;
+  reputation?: {
+    checked: boolean;
+    reason?: string;
+    listed_on?: string[];
+    reputation?: string;
+    results?: Array<{ list: string; listed: boolean | null; codes?: string[]; note?: string }>;
+  } | null;
+}
+
+export interface GeoData {
+  available?: boolean;
+  source?: string;
+  country?: string;
+  country_code?: string;
+  city?: string;
+  region?: string;
+  isp?: string;
+  org?: string;
+  asn?: string;
+  lat?: number;
+  lon?: number;
+  timezone?: string;
+  hosting?: boolean;
+  proxy?: boolean;
+  network_category?: string;
+  location_caveat?: string | null;
+}
+
+export interface SenderInfraItem {
+  role: string;
+  domain: string;
+  host: string;
+  ip: string;
+  record: "A" | "MX" | string;
+  geo: GeoData | null;
 }
 
 export interface OriginTraceResult {
@@ -536,6 +560,8 @@ export interface OriginTraceResult {
   confidence_score: number;
   infrastructure_type: string;
   summary_verdict: string;
+  client_origin_detected?: boolean;
+  sender_infrastructure?: SenderInfraItem[];
   disclaimer: string;
 }
 

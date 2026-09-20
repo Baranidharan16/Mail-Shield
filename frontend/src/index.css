@@ -383,3 +383,26 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in { animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+/* ---- MailShield live geolocation map ---- */
+.ms-map.leaflet-container, .ms-map { background: #0b1220; font-family: inherit; }
+.ms-marker {
+  display: block; border-radius: 9999px; background: var(--c);
+  border: 2px solid rgba(255,255,255,.9); box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 0 12px var(--c);
+  position: relative;
+}
+.ms-marker-pulse::after {
+  content: ""; position: absolute; inset: -2px; border-radius: 9999px; border: 2px solid var(--c);
+  animation: ms-pulse 1.8s ease-out infinite;
+}
+@keyframes ms-pulse { 0% { transform: scale(1); opacity: .9 } 100% { transform: scale(3.2); opacity: 0 } }
+.ms-marker-infra {
+  display: block; width: 16px; height: 16px; border-radius: 3px; background: #a855f7;
+  border: 2px solid rgba(255,255,255,.9); box-shadow: 0 0 10px #a855f7; transform: rotate(45deg) scale(.8);
+}
+.ms-relay-path { animation: ms-dash 1.2s linear infinite; }
+@keyframes ms-dash { to { stroke-dashoffset: -36; } }
+@media (prefers-reduced-motion: reduce) {
+  .ms-marker-pulse::after, .ms-relay-path { animation: none; }
+}
+.ms-map .leaflet-popup-content-wrapper { border-radius: 10px; }

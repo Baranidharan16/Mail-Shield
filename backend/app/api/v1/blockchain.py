@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
-from app.blockchain.ledger import verify_chain
+from app.blockchain.ledger import block_is_valid, verify_chain
 from app.blockchain.fabric_service import get_fabric_service
 from app.models.investigation import BlockchainBlock, Investigation
 from app.models.user import User
@@ -44,6 +44,8 @@ def list_blocks(db: Session = Depends(get_db), limit: int = 100, current_user: U
         .limit(max(1, min(limit, 500)))
         .all()
     )
+    chain_ok = verify_chain(db)["verified"]
+    connected = get_fabric_service().is_connected
     return [
         {
             "block_index": b.block_index,
@@ -53,8 +55,9 @@ def list_blocks(db: Session = Depends(get_db), limit: int = 100, current_user: U
             "report_hash": b.report_hash,
             "block_hash": b.block_hash,
             "previous_hash": b.previous_hash,
-            "network": "Hyperledger Fabric / Cryptographic Hash Ledger",
-            "integrity_status": "VERIFIED",
+            "network": "Hyperledger Fabric" if connected else "Local SHA-256 hash-chain ledger",
+            # Recomputed per request - never a stored/assumed flag.
+            "integrity_status": ("VERIFIED" if chain_ok else "CHAIN_BROKEN") if block_is_valid(b) else "INVALID",
         }
         for b in blocks
     ]
@@ -108,7 +111,8 @@ def fabric_status():
         "msp_id": service.msp_id,
         "peer_endpoint": service.peer_endpoint,
         "connected": service.is_connected,
-        "ledger_type": "Hyperledger Fabric (Permissioned Enterprise Consortium) + Cryptographic Fallback",
+        "ledger_type": ("Hyperledger Fabric (permissioned consortium)" if service.is_connected
+                        else "Local SHA-256 hash-chain ledger (Fabric peer not connected; chaincode in contracts/)"),
         "hash_algorithm": "SHA-256",
         "immutable_verification": True,
     }

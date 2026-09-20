@@ -193,7 +193,8 @@ def classify_network(org_text: str, hosting: bool = False, proxy: bool = False) 
 class GeoIPProvider:
     """
     IP -> approximate geolocation + network ownership via ip-api.com
-    (free tier, no key, 45 req/min). Results are cached in-process.
+    (free tier, no key, 45 req/min), falling back to ipwho.is and ipapi.co
+    when ip-api is rate-limited or unreachable. Results are cached in-process.
 
     Accuracy: country-level is usually right; region/city for hosting,
     mobile and proxy networks is frequently wrong. Coordinates are the
@@ -220,39 +221,87 @@ class GeoIPProvider:
 
         if ip_address in self._cache:
             return self._cache[ip_address]
-        try:
-            import requests as _req
-            resp = _req.get(self._ENDPOINT.format(ip=ip_address), timeout=4.0)
-            resp.raise_for_status()
-            d = resp.json()
-            if d.get("status") != "success":
-                return {"available": False, "reason": d.get("message", "GeoIP service returned no data")}
-            net = classify_network(" ".join(filter(None, [d.get("org"), d.get("isp"), d.get("as"), d.get("asname")])),
-                                   hosting=bool(d.get("hosting")), proxy=bool(d.get("proxy")))
-            out = {
-                "available": True,
-                "is_synthetic_demo_data": False,
-                "source": "ip-api.com",
-                "country": d.get("country"), "country_code": d.get("countryCode"),
-                "region": d.get("regionName"), "city": d.get("city"),
-                "lat": d.get("lat"), "lon": d.get("lon"), "timezone": d.get("timezone"),
-                "isp": d.get("isp"), "org": d.get("org"), "asn": d.get("as"), "as_name": d.get("asname"),
-                "reverse_dns": d.get("reverse") or None,
-                "hosting": bool(d.get("hosting")), "proxy": bool(d.get("proxy")), "mobile": bool(d.get("mobile")),
-                "network_provider": net["provider"], "network_category": net["category"],
-                "location_caveat": net["location_caveat"],
-                "accuracy_note": "Approximate: country-level is generally reliable; region/city is an estimate "
-                                 "and coordinates are a city/region centroid.",
-                "disclaimer": "Probable infrastructure geolocation — reflects network infrastructure observed in the "
-                              "e-mail path, NOT the physical location or identity of the sender.",
-                "label": "Probable infrastructure geolocation",
-            }
-            if len(self._cache) > 5000:
-                self._cache.clear()
-            self._cache[ip_address] = out
-            return out
-        except Exception as exc:  # noqa: BLE001
-            return {"available": False, "reason": f"GeoIP lookup unavailable: {type(exc).__name__}"}
+        d, source, errors = None, None, []
+        for fetch in (self._fetch_ipapi, self._fetch_ipwhois, self._fetch_ipapico):
+            try:
+                d = fetch(ip_address)
+                if d:
+                    source = d.pop("_source")
+                    break
+            except Exception as exc:  # noqa: BLE001 — try the next provider
+                errors.append(f"{fetch.__name__[7:]}: {type(exc).__name__}")
+        if not d:
+            return {"available": False,
+                    "reason": "GeoIP lookup unavailable (" + (", ".join(errors) or "no provider returned data") + ")"}
+        net = classify_network(" ".join(filter(None, [d.get("org"), d.get("isp"), d.get("as"), d.get("asname")])),
+                               hosting=bool(d.get("hosting")), proxy=bool(d.get("proxy")))
+        out = {
+            "available": True,
+            "is_synthetic_demo_data": False,
+            "source": source,
+            "country": d.get("country"), "country_code": d.get("countryCode"),
+            "region": d.get("regionName"), "city": d.get("city"),
+            "lat": d.get("lat"), "lon": d.get("lon"), "timezone": d.get("timezone"),
+            "isp": d.get("isp"), "org": d.get("org"), "asn": d.get("as"), "as_name": d.get("asname"),
+            "reverse_dns": d.get("reverse") or None,
+            "hosting": bool(d.get("hosting")), "proxy": bool(d.get("proxy")), "mobile": bool(d.get("mobile")),
+            "network_provider": net["provider"], "network_category": net["category"],
+            "location_caveat": net["location_caveat"],
+            "accuracy_note": "Approximate: country-level is generally reliable; region/city is an estimate "
+                             "and coordinates are a city/region centroid.",
+            "disclaimer": "Probable infrastructure geolocation — reflects network infrastructure observed in the "
+                          "e-mail path, NOT the physical location or identity of the sender.",
+            "label": "Probable infrastructure geolocation",
+        }
+        if len(self._cache) > 5000:
+            self._cache.clear()
+        self._cache[ip_address] = out
+        return out
+
+    # --- providers (each returns an ip-api-shaped dict or None) -------------
+    def _fetch_ipapi(self, ip: str):
+        import requests as _req
+        resp = _req.get(self._ENDPOINT.format(ip=ip), timeout=4.0)
+        resp.raise_for_status()
+        d = resp.json()
+        if d.get("status") != "success":
+            return None
+        d["_source"] = "ip-api.com"
+        return d
+
+    def _fetch_ipwhois(self, ip: str):
+        import requests as _req
+        resp = _req.get(f"https://ipwho.is/{ip}", timeout=4.0)
+        resp.raise_for_status()
+        j = resp.json()
+        if not j.get("success"):
+            return None
+        conn, tz, sec = j.get("connection") or {}, j.get("timezone") or {}, j.get("security") or {}
+        asn = conn.get("asn")
+        return {
+            "_source": "ipwho.is", "country": j.get("country"), "countryCode": j.get("country_code"),
+            "regionName": j.get("region"), "city": j.get("city"), "lat": j.get("latitude"),
+            "lon": j.get("longitude"), "timezone": tz.get("id"), "isp": conn.get("isp"),
+            "org": conn.get("org"), "as": f"AS{asn} {conn.get('org') or ''}".strip() if asn else None,
+            "asname": conn.get("org"),
+            "proxy": bool(sec.get("proxy") or sec.get("vpn") or sec.get("tor")),
+            "hosting": bool(sec.get("hosting")),
+        }
+
+    def _fetch_ipapico(self, ip: str):
+        import requests as _req
+        resp = _req.get(f"https://ipapi.co/{ip}/json/", timeout=4.0,
+                        headers={"User-Agent": "MailShield-Forensics/1.0"})
+        resp.raise_for_status()
+        j = resp.json()
+        if j.get("error") or j.get("latitude") is None:
+            return None
+        return {
+            "_source": "ipapi.co", "country": j.get("country_name"), "countryCode": j.get("country_code"),
+            "regionName": j.get("region"), "city": j.get("city"), "lat": j.get("latitude"),
+            "lon": j.get("longitude"), "timezone": j.get("timezone"), "isp": j.get("org"),
+            "org": j.get("org"), "as": j.get("asn"), "asname": j.get("org"),
+        }
 
 
 _geoip_provider = GeoIPProvider()

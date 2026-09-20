@@ -143,3 +143,54 @@ def test_no_raw_exception_leaked_on_bad_request(client):
     r = client.post("/api/v1/investigations")
     assert r.status_code == 422
     assert "Traceback" not in r.text
+
+
+def test_origin_trace_endpoint_includes_sender_tracking(client):
+    r = _upload(client, "03_phishing.eml")
+    assert r.status_code in (200, 201, 202), r.text
+    inv_id = r.json()["id"]
+    _wait_for_completion(client, inv_id, timeout=60)
+    t = client.get(f"/api/v1/investigations/{inv_id}/origin-trace")
+    assert t.status_code == 200, t.text
+    body = t.json()
+    assert "sender_infrastructure" in body and "client_origin_detected" in body
+    assert body["total_hops"] == len(body["relay_path"])
+    for n in body["relay_path"]:
+        assert "source" in n and "reputation" in n
+
+
+def test_manual_ledger_registration_keeps_integrity_valid(client):
+    r = _upload(client, "01_legitimate.eml")
+    inv_id = r.json()["id"]
+    _wait_for_completion(client, inv_id, timeout=60)
+    reg = client.post(f"/api/v1/blockchain/register/{inv_id}")
+    assert reg.status_code == 200, reg.text
+    assert reg.json()["integrity_status"] == "VERIFIED"
+    assert client.get("/api/v1/blockchain/verify").json()["verified"] is True
+    blocks = client.get("/api/v1/blockchain/blocks").json()
+    assert blocks and all(b["integrity_status"] == "VERIFIED" for b in blocks)
+    integ = client.get(f"/api/v1/investigations/{inv_id}/evidence/verify").json()
+    assert integ["status"] == "VALID", integ  # was falsely "MODIFIED" after manual registration
+
+
+def test_concurrent_ledger_appends_do_not_fork():
+    import threading
+    from app.blockchain.ledger import anchor_evidence, verify_chain
+    from app.database.session import SessionLocal
+    from app.models import investigation as _m  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+
+    def worker(i):
+        db = SessionLocal()
+        try:
+            anchor_evidence(db, f"CASE-{i}", "a" * 64, "b" * 64)
+        finally:
+            db.close()
+    ts = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    db = SessionLocal()
+    try:
+        assert verify_chain(db)["verified"] is True
+    finally:
+        db.close()
