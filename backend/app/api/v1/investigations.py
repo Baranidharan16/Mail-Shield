@@ -163,8 +163,23 @@ def get_investigation(
                 "structured_probability": p_s, "text_probability": p_t,
                 "model_version": mlp.structured_model_version or mlp.text_model_version,
             }
-            from routes.analysis import _nlp_from_indicators
-            detail.nlp_detection = _nlp_from_indicators(investigation.indicators).model_dump()
+            from services.nlp_service import keyword_nlp_score
+            # Build a text blob from all available content for keyword scoring:
+            # subject + all matched indicator evidence phrases from forensic analysis.
+            text_parts = []
+            try:
+                if investigation.email_metadata and investigation.email_metadata.subject:
+                    text_parts.append(investigation.email_metadata.subject)
+            except Exception:
+                pass
+            try:
+                for ind in (investigation.indicators or []):
+                    if ind.matched_evidence:
+                        text_parts.append(ind.matched_evidence)
+            except Exception:
+                pass
+            scorer_text = " ".join(text_parts)
+            detail.nlp_detection = keyword_nlp_score(scorer_text).model_dump()
 
             # Prefer the MailShield Keras models' own outputs stored at analysis time.
             keras = (mlp.fused_breakdown or {}).get("mailshield_keras_models") or {}

@@ -54,7 +54,15 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({
   );
   const unlocatedCount = nodes.length - geoNodes.length;
 
-  // Initialise Leaflet map once traceResult is available
+  const [mapReady, setMapReady] = useState(false);
+
+  // Track when the map container div is actually in the DOM
+  const setMapRef = (el: HTMLDivElement | null) => {
+    (mapRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    setMapReady(!!el);
+  };
+
+  // Initialise Leaflet map once traceResult AND the DOM node are both ready
   useEffect(() => {
     if (!traceResult || !mapRef.current || geoNodes.length === 0) return;
 
@@ -64,7 +72,11 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({
       leafletMap.current = null;
     }
 
+    const container = mapRef.current;
+
     const initMap = async () => {
+      // Guard: ref may have been cleared by cleanup before rAF fires
+      if (!container) return;
       try {
         const L = (await import("leaflet")).default;
 
@@ -79,7 +91,7 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({
             "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
         });
 
-        const map = L.map(mapRef.current!, {
+        const map = L.map(container, {
           scrollWheelZoom: false,
           zoomControl: true,
           attributionControl: true,
@@ -177,7 +189,7 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [traceResult]);
+  }, [traceResult, mapReady]);
 
   if (!traceResult) {
     return (
@@ -284,7 +296,7 @@ export const InteractiveGeoMap: React.FC<InteractiveGeoMapProps> = ({
           </div>
         ) : (
           <div
-            ref={mapRef}
+            ref={setMapRef}
             style={{ height: "340px", width: "100%", zIndex: 0 }}
             id="mailshield-relay-map"
           />
