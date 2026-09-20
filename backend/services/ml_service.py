@@ -32,7 +32,9 @@ class MLService:
         if model_path is None:
             # Default to Mailshield_phishing_model_v2.keras if present, otherwise mailshield_ml.keras
             v2_path = base_dir / "models" / "Mailshield_phishing_model_v2.keras"
-            if v2_path.exists():
+            # Production images ship only the TensorFlow-free .npz export (the .keras
+            # file is excluded by .dockerignore), so accept either file.
+            if v2_path.exists() or v2_path.with_suffix(".npz").exists():
                 model_path = str(v2_path)
             else:
                 model_path = str(base_dir / "models" / "mailshield_ml.keras")

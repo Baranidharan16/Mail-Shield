@@ -133,12 +133,21 @@ async def ml_health():
         add("tensorflow_importable", True, f"TensorFlow {tf_version}")
         add("keras_importable", True, f"Keras {keras_version}")
     except ImportError as exc:
-        add("tensorflow_importable", False, str(exc))
+        # Production runs the TensorFlow-free Keras-Lite runtime (models/*.npz);
+        # TensorFlow is only required when no .npz export exists.
+        lite_ok = Path(ml_service.model_path).with_suffix(".npz").exists() and \
+            Path(nlp_service.model_path).with_suffix(".npz").exists()
+        add("tensorflow_importable", lite_ok,
+            "Not installed - not needed: Keras-Lite (.npz) runtime in use" if lite_ok else str(exc))
 
     # ── 2. Model files exist ─────────────────────────────────────────────────
     ml_path = Path(ml_service.model_path)
     nlp_path = Path(nlp_service.model_path)
 
+    if not ml_path.exists() and ml_path.with_suffix(".npz").exists():
+        ml_path = ml_path.with_suffix(".npz")
+    if not nlp_path.exists() and nlp_path.with_suffix(".npz").exists():
+        nlp_path = nlp_path.with_suffix(".npz")
     ml_file_ok = ml_path.exists()
     nlp_file_ok = nlp_path.exists()
     add(
@@ -171,10 +180,17 @@ async def ml_health():
     # ── 4. Preprocessing check (text → tensor) ───────────────────────────────
     prep_ok = False
     try:
+        if getattr(ml_service, "_backend", "") == "keras-lite" and ml_service.is_loaded():
+            ids = ml_service.model.vectorize("Hello world test email")
+            add("preprocessing_text_to_tensor", True, f"Keras-Lite TextVectorization -> {len(ids)} token ids")
+            prep_ok = True
+            raise StopIteration
         import tensorflow as _tf
         _test_tensor = _tf.constant(["Hello world test email"], dtype=_tf.string)
         add("preprocessing_text_to_tensor", True, f"shape={_test_tensor.shape}, dtype={_test_tensor.dtype}")
         prep_ok = True
+    except StopIteration:
+        pass
     except Exception as exc:
         add("preprocessing_text_to_tensor", False, f"{type(exc).__name__}: {exc}")
 

@@ -202,15 +202,15 @@ def get_investigation(
                 pass
             try:
                 for f in (investigation.findings or []):
-                    if f.description:
-                        text_parts.append(f.description)
+                    if f.explanation:
+                        text_parts.append(f.explanation)
             except Exception:
                 pass
 
         scorer_text = " ".join(text_parts).strip()
 
         # Check stored MailShield Keras models' outputs first
-        keras = (mlp.fused_breakdown or {}).get("mailshield_keras_models") or {} if mlp else {}
+        keras = ((mlp.fused_breakdown or {}).get("mailshield_keras_models") or {}) if mlp else {}
         if keras.get("ml") and isinstance(keras["ml"], dict):
             detail.ml_detection.update({
                 "prediction": keras["ml"].get("prediction", detail.ml_detection["prediction"]),
