@@ -18,9 +18,22 @@ from app.intel.interfaces import IntelResult
 from app.models.investigation import ThreatIntelCache
 
 DEFAULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
+_MAX_INDICATOR_LEN = 512  # threat_intel_cache.indicator is VARCHAR(512)
+
+
+def _cache_key(indicator: str) -> str:
+    """Tracking/redirect URLs can be thousands of characters long. Such
+    indicators are keyed by their SHA-256 so they fit the column and still
+    match exactly on the next lookup."""
+    indicator = indicator or ""
+    if len(indicator) <= _MAX_INDICATOR_LEN:
+        return indicator
+    import hashlib
+    return "sha256:" + hashlib.sha256(indicator.encode("utf-8", "replace")).hexdigest()
 
 
 def get_cached(db: Session, provider: str, indicator_type: str, indicator: str) -> Optional[IntelResult]:
+    indicator = _cache_key(indicator)
     row = (
         db.query(ThreatIntelCache)
         .filter(
@@ -45,7 +58,7 @@ def store_cached(db: Session, provider: str, indicator_type: str, indicator: str
     row = ThreatIntelCache(
         provider=provider,
         indicator_type=indicator_type,
-        indicator=indicator,
+        indicator=_cache_key(indicator),
         result_json=result.__dict__,
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
     )

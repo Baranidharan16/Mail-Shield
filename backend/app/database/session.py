@@ -45,6 +45,38 @@ if db_url.startswith("sqlite"):
         cur.close()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 
+
+# Email content is attacker-controlled: a single header or URL longer than its
+# VARCHAR column would make Postgres reject the whole analysis
+# ("value too long for type character varying"). SQLite does not enforce
+# lengths, so this only showed up in production. Trim over-long strings to the
+# column size right before every flush (the full raw email is preserved as
+# evidence on disk, so no forensic information is lost).
+import logging as _logging
+from sqlalchemy import String as _String, event as _event, inspect as _inspect
+from sqlalchemy.orm import Session as _Session
+
+_len_log = _logging.getLogger("mailshield.db")
+
+
+@_event.listens_for(_Session, "before_flush")
+def _fit_strings_to_columns(session, _flush_context, _instances):
+    for obj in list(session.new) + list(session.dirty):
+        try:
+            mapper = _inspect(obj).mapper
+        except Exception:  # noqa: BLE001
+            continue
+        for prop in mapper.column_attrs:
+            col = prop.columns[0]
+            limit = getattr(col.type, "length", None)
+            if not limit or not isinstance(col.type, _String):
+                continue
+            value = getattr(obj, prop.key, None)
+            if isinstance(value, str) and len(value) > limit:
+                setattr(obj, prop.key, value[: limit - 1] + "\u2026")
+                _len_log.warning("Trimmed %s.%s from %d to %d characters to fit the column.",
+                                 mapper.class_.__name__, prop.key, len(value), limit)
+
 Base = declarative_base()
 
 
