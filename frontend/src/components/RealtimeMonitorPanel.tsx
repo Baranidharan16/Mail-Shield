@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Radar, RefreshCw, Play, Pause, AlertTriangle, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2 } from "lucide-react";
 import { getMonitorStatus, getMonitoredEmails, runMonitorNow, setMonitorEnabled, getApiErrorMessage } from "../api/client";
@@ -25,7 +25,12 @@ export default function RealtimeMonitorPanel() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const isFetching = useRef(false);
+
   const load = useCallback(async () => {
+    // Prevent concurrent requests when poll fires while previous is still in-flight
+    if (isFetching.current) return;
+    isFetching.current = true;
     try {
       const [s, r] = await Promise.all([getMonitorStatus(), getMonitoredEmails(15)]);
       setStatus(s);
@@ -33,6 +38,8 @@ export default function RealtimeMonitorPanel() {
       setErr(null);
     } catch (e) {
       setErr(getApiErrorMessage(e, "Monitor status unavailable."));
+    } finally {
+      isFetching.current = false;
     }
   }, []);
 

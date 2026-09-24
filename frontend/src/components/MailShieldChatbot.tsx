@@ -162,16 +162,18 @@ export default function MailShieldChatbot({ emailContext: propContext }: Props) 
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
+  // Auto-scroll the message list — ONLY when the chatbot window is actually open and expanded.
+  // Guard: if chatbot is closed or minimized, do NOT call scrollIntoView (it would be a no-op
+  // on a hidden element anyway, but guarding explicitly prevents any unexpected side-effects).
   useEffect(() => {
     if (isOpen && !isMinimized) {
-      scrollToBottom();
+      // Use a short defer so the DOM has painted the new message before scrolling
+      const t = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 50);
+      return () => clearTimeout(t);
     }
-  }, [messages, isOpen, isMinimized, scrollToBottom]);
+  }, [messages, isOpen, isMinimized]);
 
   // Load contextual dashboard stats
   useEffect(() => {

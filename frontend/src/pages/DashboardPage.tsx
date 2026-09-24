@@ -172,15 +172,21 @@ export default function DashboardPage() {
   };
 
   const handleAnalyzeEmail = async (msg: GmailMessageItem) => {
+    // Prevent triggering a second analysis while one is already running
+    if (analyzingMessageId !== null) return;
     setAnalyzingMessageId(msg.id);
     setGmailError(null);
     try {
       const res = await analyzeGmailMessage(msg.id);
       setGmailAnalysis(res.analysis);
       setGmailInvestigationId(res.investigation_id);
-      load(); // refresh dashboard stats
+      // Silently refresh stats in background without resetting page loading state
+      Promise.all([getDashboardStats(), getRecentAlerts(6)])
+        .then(([s, a]) => { setStats(s); setRecentAlerts(a); })
+        .catch(() => {});
     } catch (err: any) {
-      setGmailError(err?.response?.data?.detail || "Failed to analyze raw email from Gmail.");
+      const detail = err?.response?.data?.detail || err?.message || "Failed to analyze email from Gmail.";
+      setGmailError(detail);
     } finally {
       setAnalyzingMessageId(null);
     }

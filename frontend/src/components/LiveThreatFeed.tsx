@@ -30,9 +30,12 @@ interface FeedEntry {
 export default function LiveThreatFeed() {
   const [entries, setEntries] = useState<FeedEntry[]>([]);
   const [connected, setConnected] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  // isFetching guards against concurrent requests when poll fires while previous is still in-flight
+  const isFetching = useRef(false);
 
   async function fetchAndMerge() {
+    if (isFetching.current) return; // prevent race conditions from overlapping poll calls
+    isFetching.current = true;
     try {
       const alerts = await getRecentAlerts(30);
       const mapped: FeedEntry[] = alerts.map((a: AlertOut) => ({
@@ -45,6 +48,8 @@ export default function LiveThreatFeed() {
       setConnected(true);
     } catch {
       setConnected(false);
+    } finally {
+      isFetching.current = false;
     }
   }
 
@@ -54,9 +59,12 @@ export default function LiveThreatFeed() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [entries]);
+  // AUTO-SCROLL ROOT CAUSE FIX:
+  // The removed effect called bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  // on every `entries` state update. Since entries changed every 10 seconds via polling,
+  // this caused the entire page to jump automatically — regardless of where the user was.
+  // Fix: removed the effect entirely. The feed uses a self-contained overflow-y-auto
+  // scroll container; its scroll position is independent of the outer page scroll.
 
   return (
     <div className="card-lab flex flex-col h-80">
@@ -72,7 +80,7 @@ export default function LiveThreatFeed() {
         </div>
       </div>
 
-      {/* Feed entries */}
+      {/* Feed entries — self-contained scroll; never touches outer page scroll position */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 font-data text-xs">
         {entries.length === 0 ? (
           <div className="text-lab-500 text-center mt-6 text-sm">No alert events yet. Upload a .eml file to generate alerts.</div>
@@ -88,7 +96,6 @@ export default function LiveThreatFeed() {
             </div>
           ))
         )}
-        <div ref={bottomRef} />
       </div>
     </div>
   );

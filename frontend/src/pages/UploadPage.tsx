@@ -62,6 +62,8 @@ export default function UploadPage() {
   }, []);
 
   async function startAnalysis() {
+    // Prevent duplicate submissions while already processing
+    if (status === "PROCESSING" || status === "QUEUED") return;
     if (activeTab === "file" && !file) return;
     if (activeTab === "raw" && !rawText.trim()) return;
 
@@ -84,7 +86,10 @@ export default function UploadPage() {
       setMailshieldAnalysis(res);
       setStatus("COMPLETED");
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Analysis failed. Confirm the MailShield backend is running.");
+      const userMessage = err?.response?.data?.detail
+        || err?.message
+        || "Analysis failed. Please confirm the MailShield backend is running and try again.";
+      setError(userMessage);
       setStatus("IDLE");
     }
   }
