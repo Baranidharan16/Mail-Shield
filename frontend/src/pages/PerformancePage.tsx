@@ -17,17 +17,26 @@ export const PerformancePage: React.FC = () => {
   const [perf, setPerf] = useState<SystemPerformance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Track whether this is the first fetch so we only show the loading
+  // skeleton on initial mount. Background poll refreshes update data
+  // silently — no loading state toggle that would shift the layout.
+  const initialFetch = React.useRef(true);
 
   const fetchPerformance = async () => {
-    try {
+    if (initialFetch.current) {
       setLoading(true);
+    }
+    try {
       setError(null);
       const data = await getSystemPerformance();
       setPerf(data);
     } catch (err: any) {
       setError(err?.message || "Failed to load system performance metrics.");
     } finally {
-      setLoading(false);
+      if (initialFetch.current) {
+        setLoading(false);
+        initialFetch.current = false;
+      }
     }
   };
 

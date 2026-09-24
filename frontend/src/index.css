@@ -356,10 +356,10 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-.animate-fade-in { animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.animate-fade-in { animation: fadeIn 0.3s ease forwards; }
 
 /* ---- MailShield live geolocation map ---- */
 .ms-map.leaflet-container, .ms-map { background: #eef0ea; font-family: inherit; }
