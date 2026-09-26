@@ -382,6 +382,13 @@ def run_analysis(db: Session, investigation_id: str, raw_bytes: bytes) -> None:
 
         logger.info("Analysis completed: case_id=%s score=%s classification=%s", investigation.case_id, fusion.overall_risk_score, fusion.classification)
 
+        # --- post-detection pipeline: quarantine -> isolated sandbox -> GRC/VAPT -> threat report -> ledger -> SOC alarm
+        try:
+            from app.advanced.pipeline import schedule_advanced_pipeline
+            schedule_advanced_pipeline(investigation.id, raw_bytes, "AUTO")
+        except Exception:  # noqa: BLE001 - never let the add-on pipeline break the core analysis
+            logger.exception("Could not schedule advanced pipeline for %s", investigation.case_id)
+
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         logger.exception("Analysis failed for investigation_id=%s", investigation_id)

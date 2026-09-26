@@ -10,6 +10,7 @@ import IntegrityLedgerPage from "./pages/IntegrityLedgerPage";
 import { CampaignsPage } from "./pages/CampaignsPage";
 import { PerformancePage } from "./pages/PerformancePage";
 import { PrivacyPage } from "./pages/PrivacyPage";
+import SOCConfigPage from "./pages/SOCConfigPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -49,6 +50,7 @@ export default function App() {
                 {/* SOC Threat Center */}
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/soc" element={<AlertsPage />} />
+                <Route path="/soc/config" element={<SOCConfigPage />} />
                 <Route path="/campaigns" element={<CampaignsPage />} />
 
                 {/* Evidence & Forensics */}

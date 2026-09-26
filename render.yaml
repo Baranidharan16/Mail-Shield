@@ -46,6 +46,38 @@ services:
         value: "false"
       - key: DATA_RETENTION_DAYS
         value: "90"
+      # --- Isolated sandbox (separate service below; only artefacts are sent, HMAC-signed) ---
+      - key: SANDBOX_URL
+        value: https://mailshield-sandbox.onrender.com   # change if Render gives the service another hostname
+      - key: SANDBOX_SHARED_SECRET
+        fromService:
+          type: web
+          name: mailshield-sandbox
+          envVarKey: SANDBOX_SHARED_SECRET
+      - key: SANDBOX_TIMEOUT_SECONDS
+        value: "90"
+      - key: ADVANCED_PIPELINE_ENABLED
+        value: "true"
+
+  # Isolated static-analysis sandbox. Own container, own image, NO database, NO Gmail/Google/Gemini
+  # secrets, NO disk. Suspicious attachments/URLs are analysed here, never on mailshield-sih.
+  # (Render private services are not available on the free plan, so it is a web service whose
+  #  only data endpoint rejects anything not HMAC-signed with the shared secret.)
+  - type: web
+    name: mailshield-sandbox
+    runtime: docker
+    dockerfilePath: ./sandbox/Dockerfile
+    dockerContext: ./sandbox
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: SANDBOX_SHARED_SECRET
+        generateValue: true
+      - key: SANDBOX_JOB_MEMORY_MB
+        value: "320"
+      - key: SANDBOX_JOB_TIMEOUT_SECONDS
+        value: "45"
 
 databases:
   - name: mailshield-db

@@ -14,3 +14,5 @@ sih-email-forensics
 .git
 # TensorFlow is not installed in the image; the models run from models/*.npz (Keras-Lite)
 backend/models/*.keras
+# the sandbox is its own image/service — never shipped inside the main app image
+sandbox

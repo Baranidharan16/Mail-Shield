@@ -4,8 +4,9 @@ import {
   LayoutGrid, UploadCloud, History, Archive, Link2,
   Settings, ChevronRight, Sparkles, AlertTriangle,
   Brain, Search, Bell, Menu, X, Network, Activity, Lock,
-  UserCheck, LogOut, ArrowUp,
+  UserCheck, LogOut, ArrowUp, Siren,
 } from "lucide-react";
+import SOCAlarmCenter from "./SOCAlarmCenter";
 import MorphingSvgBackground from "./MorphingSvgBackground";
 import MailShieldChatbot from "./MailShieldChatbot";
 import AIEngineStatus from "./AIEngineStatus";
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutGrid, end: true },
       { to: "/alerts", label: "SOC Threat Center", icon: AlertTriangle },
+      { to: "/soc/config", label: "SOC Alarm Config", icon: Siren },
       { to: "/campaigns", label: "Campaigns & Clusters", icon: Network },
     ],
   },
@@ -200,6 +202,9 @@ export default function Layout() {
           </div>
         </div>
       </header>
+
+      {/* ─── SOC ALARM BAR (only visible while alarms are active) ──────── */}
+      <SOCAlarmCenter />
 
       {/* ─── BODY (sidebar + main) ────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">

@@ -1,0 +1,3 @@
+# Local file-hash blocklist used by the sandbox (sha256 <space> label).
+# Extend with hashes from your threat-intel feeds (CERT-In advisories, MalwareBazaar exports ...).
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f EICAR anti-malware test file

@@ -148,6 +148,9 @@ def execute_threat_action(
     db.add(log_entry)
     db.commit()
     db.refresh(inv)
+    if action_name in ("QUARANTINE", "MOVE_TO_PHISHING"):
+        from app.advanced.pipeline import mark_manual_quarantine
+        mark_manual_quarantine(inv.id)  # quarantined -> isolated sandbox
 
     return {
         "success": True,

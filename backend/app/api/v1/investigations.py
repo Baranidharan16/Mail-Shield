@@ -455,7 +455,13 @@ def download_pdf_report(
         raise HTTPException(status_code=409, detail=f"Report not yet available (status={investigation.status})")
     try:
         from app.reports.pdf_report import generate_pdf_report
-        pdf_bytes = generate_pdf_report(investigation.report.report_json)
+        adv_view = None
+        try:  # append sandbox / AI-security / GRC / VAPT sections when available
+            from app.api.v1.advanced import _view as _adv_view
+            adv_view = _adv_view(db, investigation.id)
+        except Exception:  # noqa: BLE001
+            logger.warning("advanced sections unavailable for %s", investigation_id)
+        pdf_bytes = generate_pdf_report(investigation.report.report_json, advanced=adv_view)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",

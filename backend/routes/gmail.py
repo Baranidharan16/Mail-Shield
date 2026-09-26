@@ -438,6 +438,8 @@ async def quarantine_gmail_message(
         db.refresh(inv)
         res["investigation_id"] = inv.id
         res["case_id"] = inv.case_id
+        from app.advanced.pipeline import mark_manual_quarantine
+        mark_manual_quarantine(inv.id)  # quarantined -> isolated sandbox
 
     return res
 
@@ -547,6 +549,8 @@ async def release_gmail_message(
         db.commit()
         res["investigation_id"] = inv.id
         res["case_id"] = inv.case_id
+        from app.advanced.pipeline import mark_manual_quarantine
+        mark_manual_quarantine(inv.id)  # quarantined -> isolated sandbox
 
     return res
 

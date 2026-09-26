@@ -97,6 +97,7 @@ def init_db() -> None:
     from app.models import gmail_account  # noqa: F401  ← per-user Gmail token storage
     from app.models import auth_session  # noqa: F401  ← login sessions + password resets
     from app.models import processed_email  # noqa: F401  ← real-time monitor dedup/state
+    from app.models import advanced  # noqa: F401  ← sandbox / GRC / VAPT / SOC alarm tables
 
     inspector = sqlalchemy.inspect(engine)
     existing_tables = set(inspector.get_table_names())

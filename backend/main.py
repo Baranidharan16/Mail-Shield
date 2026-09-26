@@ -194,6 +194,11 @@ app.include_router(blockchain.router, prefix="/api", dependencies=AUTH)
 app.include_router(chat.router, prefix="/api/v1", dependencies=AUTH)
 app.include_router(system.router, prefix="/api/v1", dependencies=AUTH)
 app.include_router(privacy.router, prefix="/api/v1", dependencies=AUTH)
+
+# Isolated sandbox → AI-security / GRC / VAPT → threat report → ledger → SOC alarms
+from app.api.v1 import advanced  # noqa: E402
+app.include_router(advanced.inv_router, prefix="/api/v1", dependencies=OWNER)
+app.include_router(advanced.soc_router, prefix="/api/v1", dependencies=AUTH)
 logger.info("Mounted all MailShield API routers (auth + forensic + legacy).")
 
 

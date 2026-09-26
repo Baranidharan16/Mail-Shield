@@ -225,6 +225,18 @@ docker-compose up --build
 
 See **[docs/FORENSIC_PLATFORM_V2.md](docs/FORENSIC_PLATFORM_V2.md)** for the pipeline, models, evaluation results, forensic verdict, geolocation, ledger, privacy and retraining guide.
 
+## 🧪 v3: Isolated sandbox, AI security, GRC, VAPT & SOC alarms
+
+`Email → AI Threat Detection → Suspicious → Quarantine → Isolated Sandbox → Threat Report → Blockchain Audit Log → SOC alarm`
+
+* **Isolated sandbox** (`sandbox/`, its own Docker service) statically analyses quarantined attachments, URLs and HTML — file type by magic bytes, SHA-256/MD5, entropy, strings & IOCs, VBA macros, PDF JavaScript/actions, archives, HTML smuggling, disguised executables — and returns **Safe / Suspicious / Malicious** with reasons. Nothing is executed and no credentials, database or host files are exposed to it.
+* **AI security** — prompt injection aimed at AI assistants/filters, hidden text, zero-width/homoglyph evasion, AI-written lure likelihood, and the guardrails protecting MailShield's own AI.
+* **GRC** — maps evidence to IT Act 2000, BNS 2023, CERT-In 2022 (6-hour reporting), DPDP Act 2023, RBI, SEBI and GoI e-mail policy.
+* **VAPT** — attacker intent, kill chain, MITRE ATT&CK and *where* the exploited weakness is, with fixes.
+* **SOC alarms** — red alarm bar + siren + browser notification until acknowledged, configurable at `/soc/config`, optional Slack/Teams/SIEM webhook.
+
+Details, API, env vars and Render steps: [`docs/SANDBOX_AND_ADVANCED_PIPELINE.md`](docs/SANDBOX_AND_ADVANCED_PIPELINE.md).
+
 ## 🧭 Local Development (new laptop)
 
 1. Install **Python 3.12**, **Node.js 20+**, **Git**.

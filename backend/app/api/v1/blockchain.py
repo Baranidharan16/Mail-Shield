@@ -36,7 +36,9 @@ def verify(db: Session = Depends(get_db)):
 @router.get("/blocks")
 def list_blocks(db: Session = Depends(get_db), limit: int = 100, current_user: User = Depends(get_current_user)):
     """Returns the caller's ledger blocks in reverse chronological order."""
-    my_cases = db.query(Investigation.case_id).filter(Investigation.user_id == current_user.id)
+    my_case_ids = [c for (c,) in db.query(Investigation.case_id).filter(Investigation.user_id == current_user.id).all()]
+    # include the sandbox/threat-report anchors ("<case>-SBX") of the caller's cases
+    my_cases = my_case_ids + [f"{c}-SBX" for c in my_case_ids]
     blocks = (
         db.query(BlockchainBlock)
         .filter(BlockchainBlock.case_id.in_(my_cases))

@@ -35,6 +35,7 @@ import { InteractiveGeoMap } from "../components/InteractiveGeoMap";
 import { EarliestObservableNodePanel } from "../components/EarliestObservableNodePanel";
 import { SecurityDecisionTree } from "../components/SecurityDecisionTree";
 import ForensicVerdictPanel from "../components/ForensicVerdictPanel";
+import AdvancedThreatAnalysis from "../components/AdvancedThreatAnalysis";
 
 
 function Section({
@@ -321,6 +322,9 @@ export default function InvestigationDetailPage() {
 
       {/* ONE CLEAR FORENSIC RESULT — evidence-derived verdict, origin, hops, vectors, integrity */}
       <ForensicVerdictPanel investigationId={data.id} status={data.status} />
+
+      {/* QUARANTINE → ISOLATED SANDBOX → AI SECURITY / GRC / VAPT → THREAT REPORT → LEDGER */}
+      <AdvancedThreatAnalysis investigationId={data.id} caseId={data.case_id} status={data.status} />
 
       {/* Risk gauge + quick facts */}
       {rsb && (

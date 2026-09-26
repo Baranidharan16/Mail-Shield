@@ -31,13 +31,43 @@ services:
       UPLOAD_STORAGE_DIR: /app/storage/evidence
       MAX_UPLOAD_SIZE_BYTES: "10485760"
       RATE_LIMIT_PER_MINUTE: "30"
+      # Isolated sandbox (reachable only over the internal sandbox_net network)
+      SANDBOX_URL: http://sandbox:8080
+      SANDBOX_SHARED_SECRET: ${SANDBOX_SHARED_SECRET:?Set SANDBOX_SHARED_SECRET (python -c "import secrets; print(secrets.token_urlsafe(48))")}
     depends_on:
       postgres:
         condition: service_healthy
+      sandbox:
+        condition: service_started
     ports:
       - "8000:8000"
     volumes:
       - evidence_storage:/app/storage/evidence
+    networks: [default, sandbox_net]
+
+  # ── Isolated static-analysis sandbox ────────────────────────────────────────
+  # * separate image built from ./sandbox — no app code, no DB driver, no Gmail/Google libs
+  # * ONLY on sandbox_net (internal: no internet egress, cannot reach postgres)
+  # * no volumes / host mounts, read-only root FS, non-root, all capabilities dropped
+  # * the only secret it holds is the HMAC key used to authenticate the backend
+  sandbox:
+    build:
+      context: ./sandbox
+    restart: unless-stopped
+    environment:
+      SANDBOX_SHARED_SECRET: ${SANDBOX_SHARED_SECRET:?Set SANDBOX_SHARED_SECRET}
+      PORT: "8080"
+    networks: [sandbox_net]
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
 
   frontend:
     build:
@@ -47,6 +77,11 @@ services:
       - backend
     ports:
       - "5173:80"
+
+networks:
+  default: {}
+  sandbox_net:
+    internal: true   # no route to the internet or to the default network (postgres)
 
 volumes:
   postgres_data:
